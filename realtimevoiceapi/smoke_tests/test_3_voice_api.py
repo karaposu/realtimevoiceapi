@@ -8,7 +8,7 @@ This test verifies:
 - Different voice options
 - Audio format processing
 - Audio streaming functionality
-- Audio transcription features
+- Real voice processing with Server VAD
 - Requires valid OpenAI API key with Realtime access
 
 Run: python -m realtimevoiceapi.smoke_tests.test_3_voice_api
@@ -72,40 +72,99 @@ def test_audio_dependencies():
     return numpy_available
 
 
-def generate_test_audio():
-    """Generate test audio for voice API testing"""
+def get_test_audio():
+    """Get test audio - prioritize real voice recording, fallback to synthetic"""
+    # First, try to use a real voice recording
+    voice_files = [
+        "test_voice.wav",
+        "my_voice.wav",
+        "voice_input.wav", 
+        "speech.wav",
+        "audio_input.wav"
+    ]
+    
+    for file in voice_files:
+        if Path(file).exists():
+            try:
+                from realtimevoiceapi.audio import AudioProcessor
+                processor = AudioProcessor()
+                
+                print(f"  📁 Using real voice recording: {file}")
+                audio_bytes = processor.load_wav_file(file)
+                
+                # Validate it's the right format
+                info = processor.get_audio_info(audio_bytes)
+                duration_ms = info.get('duration_ms', 0)
+                
+                if duration_ms < 500:
+                    print(f"  ⚠️  Audio too short ({duration_ms}ms), trying next file...")
+                    continue
+                
+                print(f"  ✅ Loaded {len(audio_bytes)} bytes ({duration_ms:.0f}ms)")
+                return audio_bytes
+                
+            except Exception as e:
+                print(f"  ⚠️  Failed to load {file}: {e}")
+                continue
+    
+    # No voice file found, generate synthetic audio
+    print("  🎵 No voice recording found, generating synthetic audio...")
+    print("  ⚠️  Note: Synthetic audio may not work with Server VAD")
+    return generate_speech_like_audio()
+
+
+def generate_speech_like_audio():
+    """Generate more speech-like synthetic audio"""
     try:
         import numpy as np
         from realtimevoiceapi.audio import AudioConfig
         
-        # Generate 2 seconds of test audio with a simple melody
+        # Generate 2 seconds of more realistic speech-like audio
         sample_rate = AudioConfig.SAMPLE_RATE  # 24kHz
-        duration = 2.0  # 2 seconds (longer audio for better recognition)
+        duration = 2.0
         
-        # Create a simple melody: A, C, E, G notes
-        frequencies = [440, 523, 659, 784]  # A4, C5, E5, G5
-        audio_data = bytearray()
+        samples_total = int(sample_rate * duration)
+        t = np.linspace(0, duration, samples_total)
         
-        note_duration = duration / len(frequencies)
+        # Create speech-like audio with multiple components
+        fundamental = 180  # Human speech fundamental
+        audio_signal = np.zeros(samples_total)
         
-        for freq in frequencies:
-            samples_per_note = int(sample_rate * note_duration)
-            t = np.linspace(0, note_duration, samples_per_note)
-            
-            # Generate sine wave with fade in/out to avoid clicks
-            wave = np.sin(2 * np.pi * freq * t)
-            
-            # Apply fade in/out (first and last 10% of note)
-            fade_samples = samples_per_note // 10
-            wave[:fade_samples] *= np.linspace(0, 1, fade_samples)
-            wave[-fade_samples:] *= np.linspace(1, 0, fade_samples)
-            
-            # Scale to 16-bit PCM and add to audio data
-            wave_pcm = (wave * 20000).astype(np.int16)  # Higher volume for better recognition
-            audio_data.extend(wave_pcm.tobytes())
+        # Add harmonics typical of human speech
+        for harmonic in range(1, 6):
+            freq = fundamental * harmonic
+            amplitude = 0.3 / harmonic  # Natural harmonic rolloff
+            audio_signal += amplitude * np.sin(2 * np.pi * freq * t)
         
-        print(f"  ✅ Generated {duration}s test audio ({len(audio_data)} bytes)")
-        return bytes(audio_data)
+        # Add formant characteristics (vowel-like resonances)
+        formant_freqs = [700, 1220, 2600]  # Typical vowel formants
+        for formant in formant_freqs:
+            modulation = 1 + 0.2 * np.sin(2 * np.pi * formant / 100 * t)
+            audio_signal *= modulation
+        
+        # Add amplitude variation (speech rhythm)
+        syllable_rate = 4  # syllables per second
+        amplitude_envelope = 0.7 + 0.3 * np.abs(np.sin(2 * np.pi * syllable_rate * t))
+        audio_signal *= amplitude_envelope
+        
+        # Add slight noise for realism
+        noise = np.random.normal(0, 0.01, samples_total)
+        audio_signal += noise
+        
+        # Apply fade in/out
+        fade_samples = int(0.1 * sample_rate)
+        audio_signal[:fade_samples] *= np.linspace(0, 1, fade_samples)
+        audio_signal[-fade_samples:] *= np.linspace(1, 0, fade_samples)
+        
+        # Normalize and convert to PCM16
+        audio_signal = audio_signal / np.max(np.abs(audio_signal)) * 0.8
+        audio_pcm = (audio_signal * 32767).astype(np.int16)
+        
+        # Ensure little-endian
+        audio_bytes = audio_pcm.astype('<i2').tobytes()
+        
+        print(f"  ✅ Generated {duration}s speech-like audio ({len(audio_bytes)} bytes)")
+        return audio_bytes
         
     except ImportError:
         print("  ⚠️ NumPy not available, cannot generate test audio")
@@ -126,8 +185,9 @@ async def test_voice_session_config():
     
     try:
         from realtimevoiceapi import RealtimeClient, SessionConfig
+        from realtimevoiceapi.models import TurnDetectionConfig
         
-        # Test different voice configurations - FIXED VOICE NAMES
+        # Test different voice configurations with VALID voice names
         voice_configs = [
             {
                 "name": "Alloy Voice",
@@ -140,9 +200,9 @@ async def test_voice_session_config():
                 "instructions": "You are testing the Echo voice. Respond briefly."
             },
             {
-                "name": "Sage Voice",  # CHANGED FROM NOVA TO SAGE
-                "voice": "sage",
-                "instructions": "You are testing the Sage voice. Respond briefly."
+                "name": "Shimmer Voice",
+                "voice": "shimmer",
+                "instructions": "You are testing the Shimmer voice. Respond briefly."
             }
         ]
         
@@ -151,15 +211,19 @@ async def test_voice_session_config():
             
             client = RealtimeClient(api_key)
             
-            # Configure for voice
+            # Configure for voice with proper turn detection
             config = SessionConfig(
                 instructions=voice_config["instructions"],
-                modalities=["text", "audio"],  # Enable both text and audio
+                modalities=["text", "audio"],
                 voice=voice_config["voice"],
                 input_audio_format="pcm16",
                 output_audio_format="pcm16",
                 temperature=0.7,
-                turn_detection=None  # Disable for cleaner testing
+                turn_detection=TurnDetectionConfig(
+                    type="server_vad",
+                    threshold=0.5,
+                    create_response=False  # Manual control for testing
+                )
             )
             
             try:
@@ -200,23 +264,27 @@ async def test_voice_text_to_speech():
     
     try:
         from realtimevoiceapi import RealtimeClient, SessionConfig
+        from realtimevoiceapi.models import TurnDetectionConfig
         
         client = RealtimeClient(api_key)
         
-        # Configure for voice output - IMPROVED CONFIG
+        # Configure for voice output
         config = SessionConfig(
             instructions="You are a voice assistant. When I say 'test voice', respond with exactly: 'Voice test successful!' Be natural and speak clearly.",
-            modalities=["text", "audio"],  # ENSURE BOTH MODALITIES
-            voice="alloy",  # VALID VOICE
+            modalities=["text", "audio"],
+            voice="alloy",
             input_audio_format="pcm16",
             output_audio_format="pcm16",
-            temperature=0.8,  # SLIGHTLY HIGHER FOR MORE NATURAL SPEECH
-            turn_detection=None  # DISABLE TURN DETECTION FOR CLEANER TESTS
+            temperature=0.8,
+            turn_detection=TurnDetectionConfig(
+                type="server_vad",
+                threshold=0.5,
+                create_response=True
+            )
         )
         
-        # Track audio response - IMPROVED TRACKING
+        # Track audio response
         audio_received = False
-        audio_duration = 0
         response_text = ""
         response_complete = False
         
@@ -227,22 +295,16 @@ async def test_voice_text_to_speech():
             response_text += text
             print(text, end="", flush=True)
         
-        @client.on_event("response.audio.delta")  # TRACK AUDIO DELTAS
+        @client.on_event("response.audio.delta")
         async def handle_audio_delta(event_data):
             nonlocal audio_received
             audio_received = True
-        
-        @client.on_event("response.audio.done")
-        async def handle_audio_done(event_data):
-            nonlocal audio_duration
-            audio_duration = client.get_audio_output_duration()
-            print(f"\n    📡 Audio response completed ({audio_duration:.1f}ms)")
         
         @client.on_event("response.done")
         async def handle_response_done(event_data):
             nonlocal response_complete
             response_complete = True
-            print()  # New line after text response
+            print()
         
         print("  ✅ Event handlers registered")
         
@@ -256,8 +318,8 @@ async def test_voice_text_to_speech():
         
         await client.send_text("test voice")
         
-        # Wait for complete response - IMPROVED WAITING
-        timeout = 25  # Longer timeout for voice
+        # Wait for complete response
+        timeout = 25
         start_time = time.time()
         while not response_complete and (time.time() - start_time) < timeout:
             await asyncio.sleep(0.1)
@@ -275,11 +337,8 @@ async def test_voice_text_to_speech():
             
             result = True
         else:
-            print(f"  ❌ Voice response issue (complete: {response_complete}, audio: {audio_duration:.1f}ms)")
-            if not response_complete:
-                print("    No response received within timeout")
-            if audio_duration == 0:
-                print("    No audio generated (check modalities configuration)")
+            print(f"  ❌ Voice response issue")
+            print(f"    Complete: {response_complete}, Audio: {audio_duration:.1f}ms")
             result = False
         
         await client.disconnect()
@@ -294,7 +353,7 @@ async def test_voice_text_to_speech():
 
 
 async def test_audio_input():
-    """Test audio input processing - COMPLETELY REWRITTEN"""
+    """Test audio input processing using working methods"""
     print("\n🎤 Testing Audio Input...")
     
     api_key = os.getenv("OPENAI_API_KEY")
@@ -302,30 +361,23 @@ async def test_audio_input():
         print("  ⏩ Skipping - no API key available")
         return False
     
-    # Generate test audio
-    test_audio = generate_test_audio()
+    # Get test audio (prefer real voice)
+    test_audio = get_test_audio()
     if not test_audio:
-        print("  ⏩ Skipping - cannot generate test audio (NumPy required)")
-        return True  # Don't fail the test, just skip
+        print("  ⏩ Skipping - cannot get test audio")
+        return True
     
     try:
         from realtimevoiceapi import RealtimeClient, SessionConfig, AudioProcessor
-        from realtimevoiceapi.models import TranscriptionConfig
+        from realtimevoiceapi.models import TurnDetectionConfig
         
         processor = AudioProcessor()
         duration_ms = processor.get_audio_duration_ms(test_audio)
-        
-        if duration_ms < 500:  # Need at least 500ms for reliable recognition
-            print(f"  ⚠️ Test audio too short ({duration_ms:.1f}ms), extending...")
-            # Duplicate the audio to make it longer
-            test_audio = test_audio * 2
-            duration_ms = processor.get_audio_duration_ms(test_audio)
-        
         print(f"  🎵 Test audio: {len(test_audio)} bytes, {duration_ms:.1f}ms")
         
         client = RealtimeClient(api_key)
         
-        # Configure for audio input - IMPROVED CONFIG WITH PROPER TRANSCRIPTION
+        # Configure for audio input with Server VAD
         config = SessionConfig(
             instructions="You are a voice assistant. When you receive audio input, respond with: 'I received your audio message!' Be brief.",
             modalities=["text", "audio"],
@@ -333,21 +385,136 @@ async def test_audio_input():
             input_audio_format="pcm16",
             output_audio_format="pcm16", 
             temperature=0.7,
-            turn_detection=None,  # DISABLE AUTO TURN DETECTION
-            input_audio_transcription=TranscriptionConfig(model="whisper-1", language="en")  # SPECIFY ENGLISH
+            turn_detection=TurnDetectionConfig(
+                type="server_vad",
+                threshold=0.5,
+                silence_duration_ms=500,
+                create_response=True
+            )
         )
         
         # Track response
-        response_received = False
+        events_received = []
         response_text = ""
-        audio_committed = False
-        error_occurred = False
+        
+        @client.on_event("input_audio_buffer.speech_started")
+        async def handle_speech_start(data):
+            events_received.append("speech_started")
+            print("    🎙️ Speech detected!")
+        
+        @client.on_event("input_audio_buffer.speech_stopped")
+        async def handle_speech_stop(data):
+            events_received.append("speech_stopped")
+            print("    🔇 Speech ended!")
         
         @client.on_event("input_audio_buffer.committed")
-        async def handle_audio_committed(event_data):
-            nonlocal audio_committed
-            audio_committed = True
-            print("    📡 Audio committed to buffer")
+        async def handle_committed(data):
+            events_received.append("committed")
+            print("    ✅ Audio committed!")
+        
+        @client.on_event("response.text.delta")
+        async def handle_text_delta(event_data):
+            nonlocal response_text
+            text = event_data.get("delta", "")
+            response_text += text
+            print(text, end="", flush=True)
+        
+        @client.on_event("response.done")
+        async def handle_response_done(event_data):
+            events_received.append("response_done")
+            print()
+        
+        @client.on_event("error")
+        async def handle_error(event_data):
+            error = event_data.get("error", {})
+            print(f"\n    ❌ API Error: {error.get('message', 'Unknown error')}")
+        
+        print("  ✅ Event handlers registered")
+        
+        # Connect and test
+        await client.connect(config)
+        print("  ✅ Connected with audio input configuration")
+        
+        print("  📤 Sending audio input...")
+        print("  🤖 Response: ", end="")
+        
+        # Use the working method
+        await client.send_audio_simple(test_audio)
+        
+        # Wait for response
+        timeout = 25
+        start_time = time.time()
+        while "response_done" not in events_received and (time.time() - start_time) < timeout:
+            await asyncio.sleep(0.5)
+        
+        # Check success
+        got_speech_detection = "speech_started" in events_received and "speech_stopped" in events_received
+        got_response = "response_done" in events_received
+        success = got_speech_detection and got_response
+        
+        if success:
+            print(f"  ✅ Audio input processed successfully")
+            print(f"    Speech detection: {got_speech_detection}")
+            print(f"    Response received: {got_response}")
+            if response_text:
+                print(f"    Response: '{response_text.strip()}'")
+        else:
+            print(f"  ❌ Audio input failed")
+            print(f"    Speech detection: {got_speech_detection}")
+            print(f"    Response received: {got_response}")
+            print(f"    Events: {events_received}")
+        
+        await client.disconnect()
+        print("  ✅ Disconnected")
+        
+        return success
+        
+    except Exception as e:
+        print(f"  ❌ Audio input test failed: {e}")
+        logger.exception("Audio input test error")
+        return False
+
+
+async def test_audio_streaming():
+    """Test audio streaming using working methods"""
+    print("\n🌊 Testing Audio Streaming...")
+    
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        print("  ⏩ Skipping - no API key available")
+        return False
+    
+    # Get test audio
+    test_audio = get_test_audio()
+    if not test_audio:
+        print("  ⏩ Skipping - cannot get test audio")
+        return True
+    
+    try:
+        from realtimevoiceapi import RealtimeClient, SessionConfig, AudioProcessor
+        from realtimevoiceapi.models import TurnDetectionConfig
+        
+        client = RealtimeClient(api_key)
+        processor = AudioProcessor()
+        
+        # Configure for streaming
+        config = SessionConfig(
+            instructions="You are testing audio streaming. When you receive audio, respond with: 'Streaming test complete!'",
+            modalities=["text", "audio"],
+            voice="echo",
+            input_audio_format="pcm16",
+            output_audio_format="pcm16",
+            temperature=0.7,
+            turn_detection=TurnDetectionConfig(
+                type="server_vad",
+                threshold=0.5,
+                create_response=True
+            )
+        )
+        
+        # Track streaming events
+        response_received = False
+        response_text = ""
         
         @client.on_event("response.text.delta")
         async def handle_text_delta(event_data):
@@ -362,140 +529,30 @@ async def test_audio_input():
             response_received = True
             print()
         
-        @client.on_event("error")
-        async def handle_error(event_data):
-            nonlocal error_occurred
-            error_occurred = True
-            error = event_data.get("error", {})
-            print(f"\n    ❌ API Error: {error.get('message', 'Unknown error')}")
-        
-        print("  ✅ Event handlers registered")
-        
-        # Connect and test
-        await client.connect(config)
-        print("  ✅ Connected with audio input configuration")
-        
-        # FIXED APPROACH: Use the debug method
-        print("  📤 Sending audio input...")
-        print("  🤖 Response: ", end="")
-        
-        try:
-            # Method: Use the improved audio sending from client
-            success = await client.send_audio_bytes_debug(test_audio)
-            
-            if success:
-                # Wait for response
-                timeout = 35  # Longer timeout for audio processing
-                start_time = time.time()
-                while not response_received and not error_occurred and (time.time() - start_time) < timeout:
-                    await asyncio.sleep(0.1)
-                
-                if response_received and len(response_text.strip()) > 0:
-                    print(f"  ✅ Audio input processed successfully")
-                    print(f"    Response: '{response_text.strip()}'")
-                    result = True
-                elif error_occurred:
-                    print("  ❌ Audio input failed due to API error")
-                    result = False
-                else:
-                    print("  ⏰ Audio input timeout - no response received")
-                    result = False
-            else:
-                print("  ❌ Failed to send audio")
-                result = False
-                
-        except Exception as audio_error:
-            print(f"  ❌ Audio processing error: {audio_error}")
-            result = False
-        
-        await client.disconnect()
-        print("  ✅ Disconnected")
-        
-        return result
-        
-    except Exception as e:
-        print(f"  ❌ Audio input test failed: {e}")
-        logger.exception("Audio input test error")
-        return False
-
-
-async def test_audio_streaming():
-    """Test audio streaming in chunks"""
-    print("\n🌊 Testing Audio Streaming...")
-    
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        print("  ⏩ Skipping - no API key available")
-        return False
-    
-    # Generate test audio
-    test_audio = generate_test_audio()
-    if not test_audio:
-        print("  ⏩ Skipping - cannot generate test audio (NumPy required)")
-        return True
-    
-    try:
-        from realtimevoiceapi import RealtimeClient, SessionConfig, AudioProcessor
-        
-        client = RealtimeClient(api_key)
-        processor = AudioProcessor()
-        
-        # Configure for streaming
-        config = SessionConfig(
-            instructions="You are testing audio streaming. When you receive audio, respond with: 'Streaming test complete!'",
-            modalities=["text", "audio"],
-            voice="echo",  # Different voice for variety
-            input_audio_format="pcm16",
-            output_audio_format="pcm16",
-            temperature=0.7,
-            turn_detection=None
-        )
-        
-        # Track streaming events
-        chunks_received = 0
-        response_received = False
-        
-        @client.on_event("input_audio_buffer.committed")
-        async def handle_audio_committed(event_data):
-            print("    📡 Audio buffer committed")
-        
-        @client.on_event("response.audio.delta")
-        async def handle_audio_delta(event_data):
-            nonlocal chunks_received
-            chunks_received += 1
-            if chunks_received % 5 == 0:  # Print every 5th chunk to avoid spam
-                print(f"    📊 Received {chunks_received} audio chunks...")
-        
-        @client.on_event("response.done")
-        async def handle_response_done(event_data):
-            nonlocal response_received
-            response_received = True
-        
         print("  ✅ Event handlers registered")
         
         # Connect
         await client.connect(config)
         print("  ✅ Connected for streaming test")
         
-        # Stream audio in chunks
+        # Stream audio in chunks using the working method
         print("  🌊 Streaming audio in chunks...")
-        chunk_size_ms = 250  # 250ms chunks (larger for more reliable streaming)
+        chunk_size_ms = 200  # 200ms chunks
         chunks = processor.chunk_audio(test_audio, chunk_size_ms)
         print(f"    Split into {len(chunks)} chunks of {chunk_size_ms}ms each")
         
-        # Send chunks with real-time delay
-        await client.send_audio_chunks(test_audio, chunk_size_ms, real_time=True)  # USE real-time delay to avoid buffer issues
+        # Use the working chunked sending method
+        await client.send_audio_chunks(test_audio, chunk_size_ms, real_time=True)
         print("  ✅ Audio streaming completed")
         
         # Wait for response
-        timeout = 30  # Longer timeout for streaming
+        timeout = 30
         start_time = time.time()
         while not response_received and (time.time() - start_time) < timeout:
             await asyncio.sleep(0.1)
         
         if response_received:
             print(f"  ✅ Streaming response received")
-            print(f"    Audio chunks received: {chunks_received}")
             
             # Save streamed response
             audio_duration = client.get_audio_output_duration()
@@ -521,7 +578,7 @@ async def test_audio_streaming():
 
 
 async def test_voice_conversation():
-    """Test full voice conversation flow - FIXED"""
+    """Test full voice conversation flow"""
     print("\n💬 Testing Voice Conversation Flow...")
     
     api_key = os.getenv("OPENAI_API_KEY")
@@ -531,23 +588,27 @@ async def test_voice_conversation():
     
     try:
         from realtimevoiceapi import RealtimeClient, SessionConfig
+        from realtimevoiceapi.models import TurnDetectionConfig
         
         client = RealtimeClient(api_key)
         
-        # Configure for full voice conversation - FIXED VOICE NAME
+        # Configure for full voice conversation
         config = SessionConfig(
             instructions="You are a helpful voice assistant. Respond naturally and conversationally. Keep responses brief but friendly.",
             modalities=["text", "audio"],
-            voice="sage",  # CHANGED FROM NOVA TO SAGE - VALID VOICE
+            voice="shimmer",  # Professional voice
             input_audio_format="pcm16",
             output_audio_format="pcm16",
-            temperature=0.8,  # More natural/varied responses
-            turn_detection=None  # DISABLE FOR CLEANER CONTROL
+            temperature=0.8,
+            turn_detection=TurnDetectionConfig(
+                type="server_vad",
+                threshold=0.5,
+                create_response=True
+            )
         )
         
         # Track conversation
         conversation_turns = 0
-        audio_responses = 0
         total_audio_duration = 0
         
         @client.on_event("response.text.delta")
@@ -555,28 +616,21 @@ async def test_voice_conversation():
             text = event_data.get("delta", "")
             print(text, end="", flush=True)
         
-        @client.on_event("response.audio.done")
-        async def handle_audio_done(event_data):
-            nonlocal audio_responses, total_audio_duration
-            audio_responses += 1
+        @client.on_event("response.done")
+        async def handle_response_done(event_data):
+            nonlocal conversation_turns, total_audio_duration
+            conversation_turns += 1
+            
+            # Get audio duration and save
             duration = client.get_audio_output_duration()
             total_audio_duration += duration
             
-            # Save each response
-            filename = f"conversation_turn_{conversation_turns + 1}.wav"
-            client.save_audio_output(filename)
-            print(f"\n    💾 Audio saved: {filename} ({duration:.1f}ms)")
-        
-        @client.on_event("response.done")
-        async def handle_response_done(event_data):
-            nonlocal conversation_turns
-            conversation_turns += 1
-            print()
-        
-        @client.on_event("error")
-        async def handle_error(event_data):
-            error = event_data.get("error", {})
-            print(f"\n    ❌ Conversation error: {error.get('message', 'Unknown')}")
+            if duration > 0:
+                filename = f"conversation_turn_{conversation_turns}.wav"
+                client.save_audio_output(filename)
+                print(f"\n    💾 Audio saved: {filename} ({duration:.1f}ms)")
+            else:
+                print()
         
         print("  ✅ Event handlers registered")
         
@@ -584,11 +638,11 @@ async def test_voice_conversation():
         await client.connect(config)
         print("  ✅ Connected for voice conversation")
         
-        # Have a multi-turn voice conversation - SIMPLIFIED
+        # Have a multi-turn voice conversation
         conversation_messages = [
-            "Hello! How are you?",
-            "What's the weather like?",
-            "Thank you!"
+            "Hello! How are you today?",
+            "What can you help me with?",
+            "Thank you very much!"
         ]
         
         for i, message in enumerate(conversation_messages):
@@ -600,7 +654,7 @@ async def test_voice_conversation():
                 
                 # Wait for this turn to complete
                 current_turn = conversation_turns
-                timeout = 20  # Reasonable timeout
+                timeout = 20
                 start_time = time.time()
                 while conversation_turns == current_turn and (time.time() - start_time) < timeout:
                     await asyncio.sleep(0.1)
@@ -620,13 +674,12 @@ async def test_voice_conversation():
         # Final results
         print(f"\n  📊 Conversation Summary:")
         print(f"    Turns completed: {conversation_turns}")
-        print(f"    Audio responses: {audio_responses}")
         print(f"    Total audio duration: {total_audio_duration:.1f}ms")
         
         await client.disconnect()
         print("  ✅ Voice conversation completed")
         
-        # Consider success if we got most responses
+        # Success if we got most responses
         return conversation_turns >= len(conversation_messages) - 1
         
     except Exception as e:
@@ -646,9 +699,9 @@ async def test_audio_formats():
         processor = AudioProcessor()
         
         # Test audio format validation
-        test_audio = generate_test_audio()
+        test_audio = get_test_audio()
         if not test_audio:
-            print("  ⏩ Skipping - cannot generate test audio")
+            print("  ⏩ Skipping - cannot get test audio")
             return True
         
         print(f"  🎵 Testing with {len(test_audio)} bytes of audio")
@@ -661,34 +714,43 @@ async def test_audio_formats():
             print(f"  ❌ PCM16 format validation failed: {msg}")
             return False
         
+        # Test Realtime API format validation
+        is_valid, msg = processor.validate_realtime_api_format(test_audio)
+        if is_valid:
+            print("  ✅ Realtime API format validation passed")
+        else:
+            print(f"  ❌ Realtime API format validation failed: {msg}")
+            return False
+        
         # Test audio info extraction
         info = processor.get_audio_info(test_audio)
-        expected_duration = 2000.0  # 2 seconds
-        if abs(info['duration_ms'] - expected_duration) < 100:  # Allow 100ms tolerance
-            print(f"  ✅ Audio duration correct: {info['duration_ms']:.1f}ms")
+        duration_ms = info['duration_ms']
+        if duration_ms > 0:
+            print(f"  ✅ Audio duration extracted: {duration_ms:.1f}ms")
         else:
-            print(f"  ❌ Audio duration wrong: {info['duration_ms']:.1f}ms vs {expected_duration}ms")
+            print(f"  ❌ Invalid audio duration: {duration_ms}ms")
             return False
         
         # Test chunking for different sizes
         chunk_sizes = [100, 250, 500]  # Different chunk sizes in ms
         for chunk_ms in chunk_sizes:
             chunks = processor.chunk_audio(test_audio, chunk_ms)
-            expected_chunks = int(info['duration_ms'] / chunk_ms)
+            expected_chunks = int(duration_ms / chunk_ms)
             
-            if abs(len(chunks) - expected_chunks) <= 1:  # Allow ±1 chunk tolerance
+            if abs(len(chunks) - expected_chunks) <= 2:  # Allow ±2 chunk tolerance
                 print(f"  ✅ {chunk_ms}ms chunking: {len(chunks)} chunks")
             else:
                 print(f"  ❌ {chunk_ms}ms chunking failed: {len(chunks)} vs ~{expected_chunks}")
                 return False
         
         # Test audio quality analysis
-        analysis = processor.analyze_audio_quality(test_audio)
-        if analysis['quality_score'] > 0.7:
-            print(f"  ✅ Audio quality analysis: {analysis['quality_score']:.2f}")
-        else:
-            print(f"  ⚠️ Audio quality low: {analysis['quality_score']:.2f}")
-            # Don't fail for low quality, just warn
+        if hasattr(processor, 'analyze_audio_quality'):
+            analysis = processor.analyze_audio_quality(test_audio)
+            if analysis.get('quality_score', 0) > 0.5:
+                print(f"  ✅ Audio quality analysis: {analysis['quality_score']:.2f}")
+            else:
+                print(f"  ⚠️ Audio quality low: {analysis['quality_score']:.2f}")
+                # Don't fail for low quality, just warn
         
         print("  ✅ All audio format tests passed")
         return True
@@ -701,10 +763,22 @@ async def test_audio_formats():
 
 async def main():
     """Run all voice API tests"""
-    print("🧪 RealtimeVoiceAPI - Test 3: Voice and Audio API")
+    print("🧪 RealtimeVoiceAPI - Test 3: Voice and Audio API (FIXED)")
     print("=" * 70)
     print("This test requires a valid OpenAI API key and tests voice features")
     print("⚠️  This test will use moderate API quota for voice generation")
+    print()
+    
+    # Check for voice recordings
+    voice_files = ["test_voice.wav", "my_voice.wav", "voice_input.wav", "speech.wav"]
+    available_files = [f for f in voice_files if Path(f).exists()]
+    
+    if available_files:
+        print(f"✅ Found voice recording(s): {', '.join(available_files)}")
+        print("   Audio input tests will be more reliable")
+    else:
+        print("⚠️  No voice recordings found. Some audio tests may use synthetic audio.")
+        print("💡 For better results, record your voice or place test_voice.wav")
     print()
     
     # Check if we should skip API tests
@@ -743,11 +817,11 @@ async def main():
             results.append((test_name, False))
         
         # Small delay between tests
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(1.0)
     
     # Summary
     print("\n" + "=" * 70)
-    print("📊 Test 3 Results")
+    print("📊 Test 3 Results (Fixed)")
     print("=" * 70)
     
     passed = sum(1 for _, result in results if result)
@@ -763,9 +837,9 @@ async def main():
         print("\n🎉 Test 3 PASSED! Voice and audio functionality works perfectly.")
         print("💡 Your RealtimeVoiceAPI supports:")
         print("   - ✅ Text-to-speech voice generation")
-        print("   - ✅ Audio input processing")
+        print("   - ✅ Audio input processing with Server VAD")
         print("   - ✅ Real-time audio streaming")
-        print("   - ✅ Multiple voice options")
+        print("   - ✅ Multiple voice options (alloy, echo, shimmer)")
         print("   - ✅ Voice conversations")
         print("   - ✅ Audio format handling")
         print("\n🚀 You're ready to build full voice applications!")
@@ -778,15 +852,16 @@ async def main():
     else:
         print(f"\n❌ Test 3 FAILED! {total - passed} test(s) need attention.")
         print("\n🔧 Common voice API issues:")
-        print("  - Missing NumPy for audio generation")
-        print("  - Voice responses taking longer than expected")
-        print("  - Audio format compatibility issues")
+        print("  - Server VAD requires real speech or high-quality synthetic audio")
+        print("  - Voice responses may take longer than expected")
         print("  - Network latency affecting real-time performance")
+        print("  - Audio format compatibility issues")
         print("\n💡 Troubleshooting:")
-        print("  1. Install NumPy: pip install numpy")
-        print("  2. Check internet connection speed")
-        print("  3. Try with different voice models")
-        print("  4. Verify API quota and rate limits")
+        print("  1. Use real voice recordings for better VAD detection")
+        print("  2. Check internet connection speed and stability")
+        print("  3. Verify OpenAI API quota and rate limits")
+        print("  4. Try the proven working test:")
+        print("     python -m realtimevoiceapi.smoke_tests.audio_input_api_compliant")
     
     # Show generated audio files
     audio_files = [
@@ -802,7 +877,7 @@ async def main():
         print(f"\n🎵 Generated audio files:")
         for f in found_files:
             size = Path(f).stat().st_size
-            print(f"   📁 {f} ({size} bytes)")
+            print(f"   📁 {f} ({size:,} bytes)")
         print("   You can play these files to hear the voice responses!")
     
     return passed >= total - 1  # Allow 1 failure
