@@ -11,7 +11,7 @@ This test verifies:
 - Real voice processing with Server VAD
 - Requires valid OpenAI API key with Realtime access
 
-Run: python -m realtimevoiceapi.smoke_tests.test_3_voice_api
+Run: python -m realtimevoiceapi.smoke_tests.test_5_voice_api
 """
 
 import sys

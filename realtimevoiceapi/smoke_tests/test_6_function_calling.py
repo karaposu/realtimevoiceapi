@@ -12,7 +12,7 @@ This test verifies:
 
 This showcases the full power of RealtimeVoiceAPI: Speech → Understanding → Action → Speech
 
-Run: python -m realtimevoiceapi.smoke_tests.test_4_function_calling
+Run: python -m realtimevoiceapi.smoke_tests.test_6_function_calling
 """
 
 import sys

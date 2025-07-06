@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-Audio Input - Working Tests Based on API Requirements
+Audio Input - Working Tests Based on API Requirements (CLEAN VERSION)
 
 This implements audio input tests that work with the API's actual requirements.
 Server VAD or Semantic VAD are required - there is no "none" option.
 
+UPDATED: Now saves all audio outputs to sound_outputs/ directory
+
 Save this as: audio_input_api_compliant.py
-Run with: python -m realtimevoiceapi.smoke_tests.audio_input_api_compliant
+Run with: python -m realtimevoiceapi.smoke_tests.test_3_audio_input_api_compliant
 """
 
 import sys
@@ -30,6 +32,13 @@ except ImportError:
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
+
+
+def ensure_sound_outputs_dir():
+    """Ensure the sound_outputs directory exists"""
+    sound_dir = Path("sound_outputs")
+    sound_dir.mkdir(exist_ok=True)
+    return sound_dir
 
 
 def generate_speech_like_audio():
@@ -101,7 +110,12 @@ def get_test_audio():
         "audio_input.wav"
     ]
     
-    for file in voice_files:
+    # Also check in sound_outputs directory
+    sound_dir = ensure_sound_outputs_dir()
+    sound_voice_files = [sound_dir / f for f in voice_files]
+    all_voice_files = voice_files + [str(f) for f in sound_voice_files]
+    
+    for file in all_voice_files:
         if Path(file).exists():
             try:
                 from realtimevoiceapi.audio import AudioProcessor
@@ -145,7 +159,10 @@ def record_test_audio():
         SAMPLE_RATE = 24000  # Required by API
         CHANNELS = 1
         DURATION = 3
-        OUTPUT_FILE = "test_voice.wav"
+        
+        # Save to sound_outputs directory
+        sound_dir = ensure_sound_outputs_dir()
+        OUTPUT_FILE = sound_dir / "test_voice.wav"
         
         # Countdown
         import time
@@ -168,7 +185,7 @@ def record_test_audio():
         
         # Save as WAV with correct format
         sf.write(
-            OUTPUT_FILE,
+            str(OUTPUT_FILE),
             recording,
             SAMPLE_RATE,
             subtype='PCM_16',
@@ -193,7 +210,10 @@ def record_test_audio():
             CHANNELS = 1
             CHUNK = 1024
             RECORD_SECONDS = 3
-            OUTPUT_FILE = "test_voice.wav"
+            
+            # Save to sound_outputs directory
+            sound_dir = ensure_sound_outputs_dir()
+            OUTPUT_FILE = sound_dir / "test_voice.wav"
             
             p = pyaudio.PyAudio()
             
@@ -226,7 +246,7 @@ def record_test_audio():
             p.terminate()
             
             # Save as WAV
-            wf = wave.open(OUTPUT_FILE, 'wb')
+            wf = wave.open(str(OUTPUT_FILE), 'wb')
             wf.setnchannels(CHANNELS)
             wf.setsampwidth(p.get_sample_size(pyaudio.paInt16))
             wf.setframerate(SAMPLE_RATE)
@@ -355,10 +375,12 @@ async def test_server_vad_auto_response():
                 if "speech_started" in events_received and "speech_stopped" not in events_received:
                     print("     (Speech detected but not yet ended - waiting for silence)")
         
-        # Save audio response if any
+        # Save audio response if any (UPDATED: save to sound_outputs)
         if client.get_audio_output_duration() > 0:
-            client.save_audio_output("server_vad_response.wav")
-            print(f"  💾 Audio response saved ({client.get_audio_output_duration():.0f}ms)")
+            sound_dir = ensure_sound_outputs_dir()
+            output_file = sound_dir / "server_vad_auto_response.wav"
+            client.save_audio_output(str(output_file))
+            print(f"  💾 Audio response saved to: {output_file} ({client.get_audio_output_duration():.0f}ms)")
         
         await client.disconnect()
         
@@ -445,6 +467,13 @@ async def test_server_vad_manual_response():
             
             # Wait for response
             await asyncio.sleep(5)
+            
+            # Save response (UPDATED: save to sound_outputs)
+            if client.get_audio_output_duration() > 0:
+                sound_dir = ensure_sound_outputs_dir()
+                output_file = sound_dir / "server_vad_manual_response.wav"
+                client.save_audio_output(str(output_file))
+                print(f"  💾 Manual response saved to: {output_file}")
         
         await client.disconnect()
         
@@ -508,6 +537,13 @@ async def test_semantic_vad():
         print("  ⏳ Waiting for Semantic VAD processing...")
         await asyncio.sleep(12)
         
+        # Save response (UPDATED: save to sound_outputs)
+        if client.get_audio_output_duration() > 0:
+            sound_dir = ensure_sound_outputs_dir()
+            output_file = sound_dir / "semantic_vad_response.wav"
+            client.save_audio_output(str(output_file))
+            print(f"  💾 Semantic VAD response saved to: {output_file}")
+        
         await client.disconnect()
         
         print(f"\n  Result: {'✅ SUCCESS' if response_received else '❌ FAILED'}")
@@ -559,9 +595,12 @@ async def test_audio_conversation():
             print(f"  📝 Text response: {text}")
         
         if audio:
-            client.audio_processor.save_wav_file(audio, "conversation_response.wav")
+            # Save using direct path to sound_outputs
+            sound_dir = ensure_sound_outputs_dir()
+            output_file = sound_dir / "conversation_response.wav"
+            client.audio_processor.save_wav_file(audio, output_file)
             duration = client.audio_processor.get_audio_duration_ms(audio)
-            print(f"  🔊 Audio response: {duration:.0f}ms saved to conversation_response.wav")
+            print(f"  🔊 Audio response: {duration:.0f}ms saved to {output_file}")
         
         await client.disconnect()
         
@@ -592,6 +631,7 @@ async def test_preset_configs():
         from realtimevoiceapi.session import SessionPresets
         
         client = RealtimeClient(api_key)
+        sound_dir = ensure_sound_outputs_dir()
         
         # Test voice assistant preset
         print("  🤖 Testing voice assistant preset...")
@@ -603,6 +643,12 @@ async def test_preset_configs():
         
         success = client.get_audio_output_duration() > 0
         print(f"    Voice assistant: {'✅' if success else '❌'}")
+        
+        # Save preset response (UPDATED: save to sound_outputs)
+        if success:
+            output_file = sound_dir / "voice_assistant_preset_response.wav"
+            client.save_audio_output(str(output_file))
+            print(f"    💾 Voice assistant response saved to: {output_file}")
         
         await client.disconnect()
         
@@ -617,6 +663,12 @@ async def test_preset_configs():
         success = client.get_audio_output_duration() > 0
         print(f"    Customer service: {'✅' if success else '❌'}")
         
+        # Save preset response (UPDATED: save to sound_outputs)
+        if success:
+            output_file = sound_dir / "customer_service_preset_response.wav"
+            client.save_audio_output(str(output_file))
+            print(f"    💾 Customer service response saved to: {output_file}")
+        
         await client.disconnect()
         
         return True
@@ -628,10 +680,15 @@ async def test_preset_configs():
 
 async def main():
     """Run working audio input tests"""
-    print("🎉 RealtimeVoiceAPI - Working Audio Input Tests")
-    print("=" * 60)
+    print("🎉 RealtimeVoiceAPI - Working Audio Input Tests (CLEAN VERSION)")
+    print("=" * 70)
     print("Testing audio input with proper API requirements")
     print("(Server VAD or Semantic VAD are required)")
+    print()
+    
+    # Ensure sound_outputs directory exists and show path
+    sound_dir = ensure_sound_outputs_dir()
+    print(f"🗂️  Audio outputs will be saved to: {sound_dir.absolute()}")
     print()
     
     # Check for recording options
@@ -683,20 +740,38 @@ async def main():
                         silence_chunks = 0
                         print(".", end="", flush=True)
             
-            # Save recording
+            # Save recording to sound_outputs
             recording = np.concatenate(chunks)
-            sf.write("test_voice.wav", recording, SAMPLE_RATE, subtype='PCM_16')
-            print(f"\n  ✅ Saved test_voice.wav ({len(recording)/SAMPLE_RATE:.1f}s)")
+            output_file = sound_dir / "test_voice.wav"
+            sf.write(str(output_file), recording, SAMPLE_RATE, subtype='PCM_16')
+            print(f"\n  ✅ Saved {output_file} ({len(recording)/SAMPLE_RATE:.1f}s)")
             print("     This recording includes natural silence at the end")
             
         except Exception as e:
             print(f"  ❌ Recording failed: {e}")
         print()
     
-    # Check for voice files
-    voice_files_exist = any(Path(f).exists() for f in ["test_voice.wav", "voice_input.wav", "speech.wav", "audio_input.wav"])
-    if not voice_files_exist:
-        print("💡 Tip: For better results, record your voice:")
+    # Check for voice files (both in current dir and sound_outputs)
+    voice_files = ["test_voice.wav", "voice_input.wav", "speech.wav", "audio_input.wav"]
+    available_files = []
+    
+    # Check current directory
+    for f in voice_files:
+        if Path(f).exists():
+            available_files.append(f)
+    
+    # Check sound_outputs directory
+    for f in voice_files:
+        sound_file = sound_dir / f
+        if sound_file.exists():
+            available_files.append(str(sound_file))
+    
+    if available_files:
+        print(f"✅ Found voice recording(s): {', '.join(available_files)}")
+        print("   This will improve test reliability with Server VAD")
+    else:
+        print("⚠️  No voice recordings found. Tests will use synthetic audio.")
+        print("💡 For better results, record your voice:")
         print("   python -m realtimevoiceapi.smoke_tests.audio_input_api_compliant --record")
         print("   python -m realtimevoiceapi.smoke_tests.audio_input_api_compliant --record-silence")
         print("   Or place a WAV file named: test_voice.wav")
@@ -751,17 +826,14 @@ async def main():
             print("  - Try: --record-silence for better recordings")
             print("  - Background noise can prevent silence detection")
         
-        # List any generated files
-        files = [
-            "server_vad_response.wav",
-            "conversation_response.wav"
-        ]
-        existing_files = [f for f in files if Path(f).exists()]
-        if existing_files:
-            print("\n🎵 Generated audio files:")
-            for f in existing_files:
-                size = Path(f).stat().st_size
-                print(f"  📁 {f} ({size:,} bytes)")
+        # List generated files in sound_outputs (UPDATED: check sound_outputs)
+        audio_files = list(sound_dir.glob("*.wav"))
+        if audio_files:
+            print(f"\n🎵 Generated audio files in {sound_dir}:")
+            for f in audio_files:
+                size = f.stat().st_size
+                print(f"   📁 {f.name} ({size:,} bytes)")
+            print("   You can play these files to hear the voice responses!")
     
     return passed > 0
 

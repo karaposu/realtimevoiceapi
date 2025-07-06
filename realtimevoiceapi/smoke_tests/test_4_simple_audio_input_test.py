@@ -18,7 +18,7 @@ IMPORTANT: For best results, place a voice recording file as:
 The test will fallback to synthetic audio if no voice files are found,
 but synthetic audio may not be detected by Server VAD.
 
-Run: python -m realtimevoiceapi.smoke_tests.test_2_5_simple_audio_input_test
+Run: python -m realtimevoiceapi.smoke_tests.test_4_simple_audio_input_test
 """
 
 import sys
@@ -541,7 +541,7 @@ async def test_audio_buffer_management():
         
         if output_duration > 0:
             print("  💾 Saving and clearing audio output...")
-            buffer_file = "buffer_test_output.wav"
+            buffer_file = "smoke_tests/sound_outputs/buffer_test_output.wav"
             saved = client.save_audio_output(buffer_file, clear_buffer=True)
             
             if saved:
