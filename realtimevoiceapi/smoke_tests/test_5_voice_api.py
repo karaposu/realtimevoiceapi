@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test 3: Voice and Audio API Functionality - FIXED VERSION
+Test 5: Voice and Audio API Functionality - FIXED VERSION
 
 This test verifies:
 - Voice conversation capabilities

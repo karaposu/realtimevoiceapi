@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test 2.5: Simple Audio Input Test - FIXED VERSION
+Test 4: Simple Audio Input Test - FIXED VERSION
 
 This test provides a simplified audio input validation that:
 - Tests basic audio input processing with working methods
@@ -20,6 +20,7 @@ but synthetic audio may not be detected by Server VAD.
 
 Run: python -m realtimevoiceapi.smoke_tests.test_4_simple_audio_input_test
 """
+
 
 import sys
 import os
@@ -42,6 +43,13 @@ except ImportError:
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
+
+
+def ensure_sound_outputs_dir():
+    """Ensure the smoke_tests/sound_outputs directory exists"""
+    sound_dir = Path("smoke_tests/sound_outputs")
+    sound_dir.mkdir(parents=True, exist_ok=True)
+    return sound_dir
 
 
 def test_audio_dependencies():
@@ -91,7 +99,10 @@ def get_test_audio():
         "my_voice.wav"
     ]
     
+    # Also check in sound_outputs directory
+    sound_dir = ensure_sound_outputs_dir()
     for file in voice_files:
+        # Check in current directory first
         if Path(file).exists():
             try:
                 from realtimevoiceapi.audio import AudioProcessor
@@ -113,6 +124,31 @@ def get_test_audio():
                 
             except Exception as e:
                 print(f"  ⚠️  Failed to load {file}: {e}")
+                continue
+        
+        # Check in sound_outputs directory
+        sound_file = sound_dir / file
+        if sound_file.exists():
+            try:
+                from realtimevoiceapi.audio import AudioProcessor
+                processor = AudioProcessor()
+                
+                print(f"  📁 Using real voice recording: {sound_file}")
+                audio_bytes = processor.load_wav_file(sound_file)
+                
+                # Validate it's the right format
+                info = processor.get_audio_info(audio_bytes)
+                duration_ms = info.get('duration_ms', 0)
+                
+                if duration_ms < 500:
+                    print(f"  ⚠️  Audio too short ({duration_ms}ms), trying next file...")
+                    continue
+                
+                print(f"  ✅ Loaded {len(audio_bytes)} bytes ({duration_ms:.0f}ms)")
+                return audio_bytes
+                
+            except Exception as e:
+                print(f"  ⚠️  Failed to load {sound_file}: {e}")
                 continue
     
     # No voice file found, generate synthetic audio with warning
@@ -358,7 +394,9 @@ async def test_audio_conversation():
             if text:
                 print(f"    Text response: '{text}'")
             if audio:
-                audio_file = "conversation_test_response.wav"
+                # FIXED: Save to sound_outputs directory
+                sound_dir = ensure_sound_outputs_dir()
+                audio_file = sound_dir / "conversation_test_response.wav"
                 client.audio_processor.save_wav_file(audio, audio_file)
                 duration = client.audio_processor.get_audio_duration_ms(audio)
                 print(f"    Audio response: {duration:.0f}ms saved to {audio_file}")
@@ -438,8 +476,9 @@ async def test_voice_response_generation():
                 duration = client.audio_processor.get_audio_duration_ms(audio)
                 print(f"  🔊 Generated audio: {duration:.0f}ms")
                 
-                # Save the response
-                voice_file = "voice_generation_test.wav"
+                # FIXED: Save to sound_outputs directory
+                sound_dir = ensure_sound_outputs_dir()
+                voice_file = sound_dir / "voice_generation_test.wav"
                 client.audio_processor.save_wav_file(audio, voice_file)
                 print(f"  💾 Voice response saved: {voice_file}")
             else:
@@ -447,8 +486,9 @@ async def test_voice_response_generation():
                 print(f"  🔊 Generated audio in buffer: {duration:.0f}ms")
                 
                 if duration > 0:
-                    voice_file = "voice_generation_test.wav"
-                    client.save_audio_output(voice_file)
+                    sound_dir = ensure_sound_outputs_dir()
+                    voice_file = sound_dir / "voice_generation_test.wav"
+                    client.save_audio_output(str(voice_file))
                     print(f"  💾 Voice response saved: {voice_file}")
         
         # Success if we got audio response (text is optional)
@@ -541,8 +581,10 @@ async def test_audio_buffer_management():
         
         if output_duration > 0:
             print("  💾 Saving and clearing audio output...")
-            buffer_file = "smoke_tests/sound_outputs/buffer_test_output.wav"
-            saved = client.save_audio_output(buffer_file, clear_buffer=True)
+            # FIXED: Save to sound_outputs directory
+            sound_dir = ensure_sound_outputs_dir()
+            buffer_file = sound_dir / "buffer_test_output.wav"
+            saved = client.save_audio_output(str(buffer_file), clear_buffer=True)
             
             if saved:
                 print(f"    ✅ Audio saved to {buffer_file}")
@@ -580,9 +622,25 @@ async def main():
     print("⚠️  This test will use a small amount of your OpenAI API quota")
     print()
     
+    # Ensure sound_outputs directory exists
+    sound_dir = ensure_sound_outputs_dir()
+    print(f"🗂️  Audio outputs will be saved to: {sound_dir.absolute()}")
+    print()
+    
     # Check for voice recordings
     voice_files = ["test_voice.wav", "my_voice.wav", "voice_input.wav", "speech.wav", "audio_input.wav"]
-    available_files = [f for f in voice_files if Path(f).exists()]
+    available_files = []
+    
+    # Check current directory
+    for f in voice_files:
+        if Path(f).exists():
+            available_files.append(f)
+    
+    # Check sound_outputs directory
+    for f in voice_files:
+        sound_file = sound_dir / f
+        if sound_file.exists():
+            available_files.append(str(sound_file))
     
     if available_files:
         print(f"✅ Found voice recording(s): {', '.join(available_files)}")
@@ -679,19 +737,24 @@ async def main():
         print("  4. Try the proven working test: ")
         print("     python -m realtimevoiceapi.smoke_tests.audio_input_api_compliant")
     
-    # Show generated audio files
+    # FIXED: Show generated audio files from sound_outputs directory
     audio_files = [
         "conversation_test_response.wav",
         "voice_generation_test.wav", 
         "buffer_test_output.wav"
     ]
-    found_files = [f for f in audio_files if Path(f).exists()]
+    found_files = []
+    
+    for f in audio_files:
+        file_path = sound_dir / f
+        if file_path.exists():
+            found_files.append(file_path)
     
     if found_files:
-        print(f"\n🎵 Generated audio files:")
+        print(f"\n🎵 Generated audio files in {sound_dir}:")
         for f in found_files:
-            size = Path(f).stat().st_size
-            print(f"   📁 {f} ({size:,} bytes)")
+            size = f.stat().st_size
+            print(f"   📁 {f.name} ({size:,} bytes)")
         print("   You can play these files to hear the voice responses!")
     
     return passed >= total - 1  # Allow 1 failure

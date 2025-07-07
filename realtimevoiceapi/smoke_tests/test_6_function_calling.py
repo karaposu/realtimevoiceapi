@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test 4: Function Calling with Voice - COMPREHENSIVE TEST
+Test 6: Function Calling with Voice - COMPREHENSIVE TEST
 
 This test verifies:
 - Voice-triggered function calls ("What's the weather?")
