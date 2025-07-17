@@ -1,5 +1,7 @@
+# realtimevoiceapi/connection.py
+
 """
-WebSocket connection management for OpenAI Realtime API
+WebSocket connection for OpenAI Realtime API
 
 This module handles the low-level WebSocket communication with OpenAI's Realtime API,
 including connection establishment, message sending/receiving, and error handling.

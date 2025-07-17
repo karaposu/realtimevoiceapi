@@ -1,0 +1,16 @@
+Voice API Session Log
+Session ID: session_20250717_165512
+Started: 2025-07-17 16:55:12
+================================================================================
+
+Configuration Updated:
+  Voice: alloy
+  Input Mode: voice_server_vad
+  Output Mode: both
+  Temperature: 0.8
+  Instructions: You are a helpful assistant. Be conversational and brief.
+--------------------------------------------------------------------------------
+
+[16:55:22] ERROR:
+  Connection failed: Connection failed: timed out during opening handshake
+

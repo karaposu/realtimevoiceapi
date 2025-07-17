@@ -1,0 +1,125 @@
+Voice API Session Log
+Session ID: session_20250717_165528
+Started: 2025-07-17 16:55:28
+================================================================================
+
+Configuration Updated:
+  Voice: alloy
+  Input Mode: voice_server_vad
+  Output Mode: both
+  Temperature: 0.8
+  Instructions: You are a helpful assistant. Be conversational and brief.
+--------------------------------------------------------------------------------
+
+[16:55:33] USER (audio):
+  [Audio: 1000.0ms]
+
+[16:55:34] USER (audio):
+  [Audio: 2000.0ms]
+
+[16:55:35] USER (audio):
+  [Audio: 3000.0ms]
+
+[16:55:36] USER (audio):
+  [Audio: 4000.0ms]
+
+[16:55:37] USER (audio):
+  [Audio: 5000.0ms]
+
+[16:55:38] USER (audio):
+  [Audio: 6000.0ms]
+
+[16:55:39] USER (audio):
+  [Audio: 7000.0ms]
+
+[16:55:40] USER (audio):
+  [Audio: 8000.0ms]
+
+[16:55:41] USER (audio):
+  [Audio: 9000.0ms]
+
+[16:55:42] USER (audio):
+  [Audio: 10000.0ms]
+
+[16:55:43] USER (audio):
+  [Audio: 11000.0ms]
+
+[16:55:44] USER (audio):
+  [Audio: 12000.0ms]
+
+[16:55:45] USER (audio):
+  [Audio: 13000.0ms]
+
+[16:55:46] USER (audio):
+  [Audio: 14000.0ms]
+
+[16:55:47] USER (audio):
+  [Audio: 15000.0ms]
+
+[16:55:48] USER (audio):
+  [Audio: 16000.0ms]
+
+[16:55:49] USER (audio):
+  [Audio: 17000.0ms]
+
+[16:55:50] USER (audio):
+  [Audio: 18000.0ms]
+
+[16:55:51] USER (audio):
+  [Audio: 19000.0ms]
+
+[16:55:52] USER (audio):
+  [Audio: 20000.0ms]
+
+[16:55:53] USER (audio):
+  [Audio: 21000.0ms]
+
+[16:55:54] USER (audio):
+  [Audio: 22000.0ms]
+
+[16:55:55] USER (audio):
+  [Audio: 23000.0ms]
+
+[16:55:56] USER (audio):
+  [Audio: 24000.0ms]
+
+[16:55:57] USER (audio):
+  [Audio: 25000.0ms]
+
+[16:55:58] USER (audio):
+  [Audio: 26000.0ms]
+
+[16:55:58] ASSISTANT:
+  [Audio: 3735.3ms]
+  [Total interaction time: 26.6s]
+--------------------------------------------------------------------------------
+
+[16:55:59] USER (audio):
+  [Audio: 27000.0ms]
+
+[16:56:00] USER (audio):
+  [Audio: 28000.0ms]
+
+[16:56:01] USER (audio):
+  [Audio: 29000.0ms]
+
+[16:56:02] USER (audio):
+  [Audio: 30000.0ms]
+
+[16:56:03] USER (audio):
+  [Audio: 31000.0ms]
+
+[16:56:04] USER (audio):
+  [Audio: 32000.0ms]
+
+[16:56:05] USER (audio):
+  [Audio: 33000.0ms]
+
+[16:56:05] ASSISTANT:
+  [Audio: 500.0ms]
+  [Total interaction time: 6.4s]
+--------------------------------------------------------------------------------
+
+[16:56:06] USER (audio):
+  [Audio: 34000.0ms]
+

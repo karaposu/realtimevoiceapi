@@ -1,6 +1,6 @@
 # Core dependencies for RealtimeVoiceAPI
 websockets>=11.0.0
-
+python-dotenv
 aiohttp>=3.8.0
 
 # Environment variable management
@@ -18,6 +18,7 @@ matplotlib>=3.5.0  # For audio visualization (optional)
 
 sounddevice
 soundfile
+
 
 # Development dependencies (uncomment if needed)
 # pytest>=7.0.0
