@@ -1,3 +1,6 @@
+# here is realtimevoiceapi/exceptions.py
+
+
 """Custom exceptions for RealtimeVoiceAPI"""
 
 class RealtimeError(Exception):
@@ -18,6 +21,14 @@ class SessionError(RealtimeError):
 
 class AudioError(RealtimeError):
     """Raised when audio processing fails"""
+    pass
+
+class StreamError(RealtimeError):
+    """Raised when stream operations fail"""
+    pass
+
+class EngineError(RealtimeError):
+    """Raised when engine operations fail"""
     pass
 
 class ConfigurationError(RealtimeError):

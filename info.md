@@ -209,3 +209,6 @@ This approach gives you both performance where needed and clean code where possi
 
 
 # also i want to name this module in future, possible names: VoiceEngine, revving or VoxBridge or voxengine or voicechatengine
+
+
+#The VAD needs to accumulate enough speech duration before transitioning to SPEECH state.

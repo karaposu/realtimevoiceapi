@@ -1,73 +1,89 @@
-# here is realtimevoiceapi/__init__.py
-
 """
-RealtimeVoiceAPI - Python client for OpenAI's Realtime API
-
-A comprehensive library for real-time voice conversations with GPT-4.
+RealtimeVoiceAPI - Modern Python framework for OpenAI's Realtime API
 """
 
-# Import all components in the correct order
+__version__ = "0.2.0"
+
+# Core imports for smoke tests
+from .voice_engine import VoiceEngine, VoiceEngineConfig
+from .audio_processor import AudioProcessor
+from .session import SessionConfig, SessionPresets
 from .exceptions import (
-    RealtimeError, ConnectionError, AuthenticationError, SessionError,
-    AudioError, ConfigurationError, RateLimitError, APIError
+    RealtimeError,
+    ConnectionError,
+    AuthenticationError,
+    AudioError,
+    StreamError,
+    EngineError,
 )
 
+# Model imports for smoke tests
 from .models import (
-    AudioFormatType, ModalityType, VoiceType, ToolChoiceType,
-    TurnDetectionConfig, TranscriptionConfig, Tool, FunctionCall, ConversationItem
+    Tool,
+    TurnDetectionConfig,
+    TranscriptionConfig,
+    AudioFormatType,
+    ModalityType,
+    VoiceType,
 )
 
-from .audio import AudioProcessor, AudioFormat, AudioConfig, load_audio_file, save_audio_file
-from .events import EventDispatcher, RealtimeEvent, EventType
-from .connection import RealtimeConnection
-from .session import SessionConfig
-from .client import RealtimeClient
+# Message protocol (used by smoke tests)
+from .message_protocol import (
+    ClientMessageType,
+    ServerMessageType,
+    MessageFactory,
+    MessageValidator,
+    ProtocolInfo,
+)
 
-__version__ = "0.1.0"
-__author__ = "Your Name"
-__email__ = "your.email@example.com"
+# Audio types (used by smoke tests)
+from .audio_types import (
+    AudioFormat,
+    AudioConfig,
+    VADConfig,
+    VADType,
+)
 
-# Main exports
+# Stream protocol (used by smoke tests)
+from .stream_protocol import (
+    StreamEvent,
+    StreamEventType,
+    StreamState,
+)
+
+# Session manager (used by smoke tests)
+from .session_manager import SessionManager
+
 __all__ = [
-    # Core classes
-    "RealtimeClient",
-    "SessionConfig", 
+    "__version__",
+    "VoiceEngine",
+    "VoiceEngineConfig",
     "AudioProcessor",
-    "RealtimeConnection",
-    "EventDispatcher",
-    
-    # Events and types
-    "RealtimeEvent",
-    "EventType",
-    
-    # Type definitions
-    "AudioFormatType",
-    "ModalityType", 
-    "VoiceType",
-    "ToolChoiceType",
+    "SessionConfig",
+    "SessionPresets",
+    "RealtimeError",
+    "ConnectionError",
+    "AuthenticationError",
+    "AudioError",
+    "StreamError",
+    "EngineError",
+    "Tool",
     "TurnDetectionConfig",
     "TranscriptionConfig",
-    "Tool",
-    "FunctionCall",
-    "ConversationItem",
-    
-    # Audio utilities
+    "AudioFormatType",
+    "ModalityType",
+    "VoiceType",
+    "ClientMessageType",
+    "ServerMessageType",
+    "MessageFactory",
+    "MessageValidator",
+    "ProtocolInfo",
     "AudioFormat",
     "AudioConfig",
-    "load_audio_file",
-    "save_audio_file",
-    
-    # Exceptions
-    "RealtimeError",
-    "ConnectionError", 
-    "AuthenticationError",
-    "SessionError",
-    "AudioError",
-    "ConfigurationError",
-    "RateLimitError",
-    "APIError"
+    "VADConfig",
+    "VADType",
+    "StreamEvent",
+    "StreamEventType",
+    "StreamState",
+    "SessionManager",
 ]
-
-def get_version():
-    """Get the package version"""
-    return __version__
