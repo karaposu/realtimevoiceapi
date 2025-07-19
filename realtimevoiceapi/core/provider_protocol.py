@@ -1,4 +1,4 @@
-# here is realtimevoiceapi/provider_protocol.py
+# here is realtimevoiceapi/core/provider_protocol.py
 
 """
 Provider Protocol Definitions

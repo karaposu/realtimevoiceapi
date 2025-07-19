@@ -1,4 +1,4 @@
-# here is realtimevoiceapi/exceptions.py
+# here is realtimevoiceapi/core/exceptions.py
 
 
 """Custom exceptions for RealtimeVoiceAPI"""

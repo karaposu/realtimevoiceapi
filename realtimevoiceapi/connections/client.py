@@ -1,4 +1,4 @@
-# realtimevoiceapi/client.py
+# realtimevoiceapi/connections/client.py
 """
 Main RealtimeClient for OpenAI Realtime API
 
@@ -14,11 +14,11 @@ from typing import Optional, Callable, Dict, Any, List, Union, Tuple
 from pathlib import Path
 
 from .connection import RealtimeConnection
-from .session import SessionConfig
+from ..session import SessionConfig
 from .events import EventDispatcher, RealtimeEvent, EventType
-from .audio import AudioProcessor, AudioFormat, AudioConfig
-from .models import Tool, FunctionCall, ConversationItem
-from .exceptions import (
+from ..audio.audio import AudioProcessor, AudioFormat, AudioConfig
+from ..audio.models import Tool, FunctionCall, ConversationItem
+from ..core.exceptions import (
     RealtimeError, SessionError, AudioError, ConnectionError,
     AuthenticationError, APIError
 )

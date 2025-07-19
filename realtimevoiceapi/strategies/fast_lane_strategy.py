@@ -11,13 +11,13 @@ from typing import Optional, Dict, Any, List, AsyncIterator, Callable
 import logging
 
 from .base_strategy import BaseStrategy, EngineConfig
-from ..stream_protocol import StreamEvent, StreamEventType, StreamState
-from ..audio_types import AudioBytes, AudioConfig, VADConfig, VADType
-from ..provider_protocol import Usage, Cost
+from ..core.stream_protocol import StreamEvent, StreamEventType, StreamState
+from ..core.audio_types import AudioBytes, AudioConfig, VADConfig, VADType
+from ..core.provider_protocol import Usage, Cost
 from ..fast_lane.direct_audio_capture import DirectAudioCapture
 from ..fast_lane.fast_vad_detector import FastVADDetector,VADState
 from ..fast_lane.fast_stream_manager import FastStreamManager, FastStreamConfig
-from ..exceptions import EngineError
+from ..core.exceptions import EngineError
 
 
 class FastLaneStrategy(BaseStrategy):

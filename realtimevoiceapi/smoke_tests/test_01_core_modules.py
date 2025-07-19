@@ -26,27 +26,27 @@ import numpy as np
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from realtimevoiceapi.audio_types import (
+from realtimevoiceapi.core.audio_types import (
     AudioFormat, AudioConfig, AudioQuality, VADType, VADConfig,
     AudioMetadata, AudioErrorType, BufferConfig, ProcessingMode,
     AudioConstants
 )
-from realtimevoiceapi.audio_processor import AudioProcessor, AudioStreamBuffer
-from realtimevoiceapi.stream_protocol import (
+from realtimevoiceapi.core.audio_processor import AudioProcessor, AudioStreamBuffer
+from realtimevoiceapi.core.stream_protocol import (
     StreamEventType, StreamEvent, StreamState, StreamMetrics,
     AudioFormat as StreamAudioFormat, StreamConfig, Response,
     StreamCapability, StreamCapabilities, StreamError, StreamErrorType
 )
-from realtimevoiceapi.provider_protocol import (
+from realtimevoiceapi.core.provider_protocol import (
     ProviderFeature, ProviderCapabilities, CostUnit, CostModel,
     Usage, Cost, ProviderConfig, VoiceConfig, TranscriptionConfig,
     FunctionDefinition, QualityPreset, QualitySettings
 )
-from realtimevoiceapi.message_protocol import (
+from realtimevoiceapi.core.message_protocol import (
     ClientMessageType, ServerMessageType, MessageFactory,
     MessageValidator, MessageParser, ProtocolInfo
 )
-from realtimevoiceapi.session_manager import (
+from realtimevoiceapi.session.session_manager import (
     SessionState, Session, SessionManager
 )
 

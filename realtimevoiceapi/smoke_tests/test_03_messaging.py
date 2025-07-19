@@ -30,7 +30,7 @@ def test_message_creation():
     print("\n✉️ Testing Message Creation...")
     
     try:
-        from realtimevoiceapi.message_protocol import MessageFactory, ClientMessageType
+        from realtimevoiceapi.core.message_protocol import MessageFactory, ClientMessageType
         
         # Test all message types
         messages = []
@@ -102,7 +102,7 @@ def test_message_validation():
     print("\n✅ Testing Message Validation...")
     
     try:
-        from realtimevoiceapi.message_protocol import (
+        from realtimevoiceapi.core.message_protocol import (
             MessageFactory, MessageValidator, ClientMessageType
         )
         
@@ -164,7 +164,7 @@ def test_message_parsing():
     print("\n🔍 Testing Message Parsing...")
     
     try:
-        from realtimevoiceapi.message_protocol import MessageParser, ServerMessageType
+        from realtimevoiceapi.core.message_protocol import MessageParser, ServerMessageType
         
         # Test various server messages
         test_messages = [
@@ -229,7 +229,7 @@ async def test_websocket_connection_config():
     print("\n🔌 Testing WebSocket Connection Configuration...")
     
     try:
-        from realtimevoiceapi.websocket_connection import (
+        from realtimevoiceapi.connections.websocket_connection import (
             ConnectionConfig, ConnectionState, SerializationFormat,
             JsonSerializer, ConnectionMetrics
         )
@@ -290,7 +290,7 @@ async def test_fast_vs_big_lane_connections():
     print("\n🚀 Testing Fast vs Big Lane Connections...")
     
     try:
-        from realtimevoiceapi.websocket_connection import (
+        from realtimevoiceapi.connections.websocket_connection import (
             FastLaneConnection, BigLaneConnection,
             ConnectionConfig
         )
@@ -339,10 +339,10 @@ async def test_message_flow_integration():
     print("\n🔄 Testing Message Flow Integration...")
     
     try:
-        from realtimevoiceapi.message_protocol import (
+        from realtimevoiceapi.core.message_protocol import (
             MessageFactory, MessageValidator, ProtocolInfo
         )
-        from realtimevoiceapi.websocket_connection import JsonSerializer
+        from realtimevoiceapi.connections.websocket_connection import JsonSerializer
         
         # Create a complex session configuration message
         session_config = {

@@ -1,3 +1,6 @@
+# here is realtimevoiceapi/big_lane/stream_orchestrator.py
+
+
 """
 Stream Orchestrator - Big Lane Component
 
@@ -30,15 +33,15 @@ import logging
 from collections import defaultdict
 
 from .event_bus import EventBus, Event
-from realtimevoiceapi.stream_protocol import (
+from realtimevoiceapi.core.stream_protocol import (
     IStreamManager, StreamState, StreamConfig,
     StreamCapabilities, StreamEvent, StreamEventType
 )
-from ..provider_protocol import (
+from ..core.provider_protocol import (
     IVoiceProvider, ProviderRegistry, ProviderFeature,
     ProviderEvent, ProviderEventType
 )
-from ..session_manager import SessionManager, Session, SessionState
+from ..session.session_manager import SessionManager, Session, SessionState
 
 
 class StreamRole(Enum):

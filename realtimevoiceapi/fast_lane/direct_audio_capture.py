@@ -1,4 +1,4 @@
-# here is realtimevoiceapi/fast_lane/direct_audio_capture.py
+#here is realtimevoiceapi/fast_lane/direct_audio_capture.py
 
 
 """
@@ -11,7 +11,7 @@ Optimized for real-time voice streaming with pre-allocated buffers.
 import asyncio
 import queue
 import logging
-from typing import Optional, Callable, Union
+from typing import Optional, Callable, Union, Dict, Any
 from dataclasses import dataclass
 import numpy as np
 import time
@@ -21,8 +21,9 @@ try:
 except ImportError:
     raise ImportError("sounddevice is required. Install with: pip install sounddevice")
 
-from ..audio_types import AudioBytes, AudioConfig, AudioQuality
-from ..exceptions import AudioError
+from ..core.audio_types import AudioBytes, AudioConfig, AudioQuality
+from ..core.exceptions import AudioError
+from ..core.audio_interfaces import AudioPlayerInterface, AudioCaptureInterface
 
 
 @dataclass
@@ -50,7 +51,7 @@ class CaptureMetrics:
         return self.chunks_captured / duration
 
 
-class DirectAudioCapture:
+class DirectAudioCapture(AudioCaptureInterface):
     """
     Direct audio capture using sounddevice for minimal latency.
     
@@ -95,6 +96,9 @@ class DirectAudioCapture:
         # Metrics
         self.metrics = CaptureMetrics()
         
+        # Device info
+        self.device_info = {}
+        
         # Get device info
         self._setup_device()
     
@@ -110,6 +114,14 @@ class DirectAudioCapture:
             device_info = sd.query_devices(self.device, 'input')
             self.device_name = device_info['name']
             self.max_channels = device_info['max_input_channels']
+            
+            # Store device info
+            self.device_info = {
+                'name': device_info['name'],
+                'channels': device_info['max_input_channels'],
+                'sample_rate': device_info.get('default_samplerate', self.config.sample_rate),
+                'index': self.device
+            }
             
             if self.max_channels < self.config.channels:
                 raise AudioError(
@@ -244,19 +256,11 @@ class DirectAudioCapture:
             f"{self.metrics.buffer_overruns} overruns"
         )
     
-    def get_device_info(self) -> dict:
+    def get_device_info(self) -> Dict[str, Any]:
         """Get current device information"""
-        if not hasattr(self, 'device_name'):
-            return {"name": "Unknown", "device": self.device}
-        
-        return {
-            "name": self.device_name,
-            "device": self.device,
-            "channels": self.max_channels,
-            "sample_rate": self.config.sample_rate
-        }
+        return self.device_info.copy()
     
-    def get_metrics(self) -> dict:
+    def get_metrics(self) -> Dict[str, Any]:
         """Get capture metrics"""
         return {
             "chunks_captured": self.metrics.chunks_captured,
@@ -283,7 +287,7 @@ class DirectAudioCapture:
         return devices
 
 
-class DirectAudioPlayer:
+class DirectAudioPlayer(AudioPlayerInterface):
     """
     Direct audio playback using sounddevice.
     
@@ -301,17 +305,41 @@ class DirectAudioPlayer:
         self.config = config or AudioConfig()
         self.logger = logger or logging.getLogger(__name__)
         
+        # Metrics tracking
+        self._chunks_played = 0
+        self._total_bytes_played = 0
+        self._play_start_time: Optional[float] = None
+        self._last_play_time: Optional[float] = None
+        self._is_playing = False
+        self.device_info = {}
+        
         # Setup device
-        if self.device is None:
-            self.device = sd.default.device[1]  # Output device
-            
-        # Validate device
+        self._setup_device()
+    
+    def _setup_device(self):
+        """Setup and validate audio device"""
         try:
+            if self.device is None:
+                self.device = sd.default.device[1]  # Output device
+                
+            # Get device info
             device_info = sd.query_devices(self.device, 'output')
-            self.device_name = device_info['name']
-            self.logger.info(f"Audio player using device: {self.device_name}")
+            self.device_info = {
+                'name': device_info['name'],
+                'channels': device_info['max_output_channels'],
+                'sample_rate': device_info.get('default_samplerate', self.config.sample_rate),
+                'index': self.device
+            }
+            self.logger.info(f"Audio player using device: {self.device_info['name']}")
         except Exception as e:
             self.logger.warning(f"Could not get device info: {e}")
+            self.device_info = {'name': 'Unknown', 'index': self.device}
+    
+    @property
+    def is_playing(self) -> bool:
+        """Check if currently playing audio"""
+        # Check if sounddevice is actively playing
+        return sd.get_stream() is not None and sd.get_stream().active
     
     def play_audio(self, audio_data: AudioBytes) -> bool:
         """
@@ -326,6 +354,15 @@ class DirectAudioPlayer:
         try:
             # Convert bytes to numpy array
             audio_array = np.frombuffer(audio_data, dtype=np.int16)
+            
+            # Update metrics
+            self._chunks_played += 1
+            self._total_bytes_played += len(audio_data)
+            
+            current_time = time.time()
+            if self._play_start_time is None:
+                self._play_start_time = current_time
+            self._last_play_time = current_time
             
             # Play asynchronously (non-blocking)
             sd.play(
@@ -348,3 +385,38 @@ class DirectAudioPlayer:
     def wait_until_done(self):
         """Wait until playback is complete"""
         sd.wait()
+    
+    def get_metrics(self) -> Dict[str, Any]:
+        """Get player metrics"""
+        total_duration = 0.0
+        if self._play_start_time and self._chunks_played > 0:
+            if self.is_playing and self._last_play_time:
+                # Still playing, calculate up to last chunk
+                total_duration = self._last_play_time - self._play_start_time
+            else:
+                # Estimate based on data played
+                # 16-bit audio = 2 bytes per sample
+                total_samples = self._total_bytes_played / 2
+                total_duration = total_samples / self.config.sample_rate
+        
+        return {
+            "chunks_played": self._chunks_played,
+            "total_mb_played": self._total_bytes_played / (1024 * 1024),
+            "total_duration_seconds": total_duration,
+            "is_playing": self.is_playing,
+            "device": self.device_info.get('name', 'Unknown'),
+            "sample_rate": self.config.sample_rate
+        }
+    
+    def get_device_info(self) -> Dict[str, Any]:
+        """Get device information"""
+        return self.device_info.copy()
+    
+
+    def __del__(self):
+        """Ensure cleanup on deletion"""
+        try:
+            if hasattr(self, 'device') and sd:
+                sd.stop()
+        except Exception:
+            pass  # Ignore errors during cleanup

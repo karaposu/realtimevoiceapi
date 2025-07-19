@@ -1,5 +1,5 @@
 
-# here is realtimevoiceapi/audio.py
+# here is realtimevoiceapi/audio/audio.py
 
 # to run python -m realtimevoiceapi.audio
 
@@ -45,7 +45,7 @@ except ImportError:
     HAS_PYDUB = False
     AudioSegment = None
 
-from .exceptions import AudioError
+from ..core.exceptions import AudioError
 
 
 class AudioFormat(Enum):

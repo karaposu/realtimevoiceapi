@@ -8,9 +8,9 @@ from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, List, AsyncIterator, Callable
 from dataclasses import dataclass
 
-from ..stream_protocol import StreamEvent, StreamEventType, StreamState
-from ..audio_types import AudioBytes
-from ..provider_protocol import Usage, Cost
+from ..core.stream_protocol import StreamEvent, StreamEventType, StreamState
+from ..core.audio_types import AudioBytes
+from ..core.provider_protocol import Usage, Cost
 
 
 @dataclass

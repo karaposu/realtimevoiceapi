@@ -1,5 +1,5 @@
 
-# here is realtimevoiceapi/message_protocol.py
+# here is realtimevoiceapi/core/message_protocol.py
 
 
 """

@@ -1,5 +1,5 @@
 
-# here is realtimevoiceapi/audio_processor.py
+# here is realtimevoiceapi/core/audio_processor.py
 
 """
 Audio Processing Core

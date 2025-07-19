@@ -14,14 +14,14 @@ from typing import Optional, Dict, Any, Callable
 from dataclasses import dataclass,field
 import logging
 
-from realtimevoiceapi.stream_protocol import (
+from realtimevoiceapi.core.stream_protocol import (
     IStreamManager, StreamState, StreamEvent, StreamEventType,
     StreamMetrics, AudioFormat
 )
-from realtimevoiceapi.websocket_connection import FastLaneConnection
-from realtimevoiceapi.message_protocol import MessageFactory, ServerMessageType
-from realtimevoiceapi.audio_types import AudioBytes, AudioConfig
-from realtimevoiceapi.exceptions import StreamError
+from realtimevoiceapi.connections.websocket_connection import FastLaneConnection
+from realtimevoiceapi.core.message_protocol import MessageFactory, ServerMessageType
+from realtimevoiceapi.core.audio_types import AudioBytes, AudioConfig
+from realtimevoiceapi.core.exceptions import StreamError
 
 
 @dataclass

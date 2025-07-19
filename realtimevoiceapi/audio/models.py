@@ -1,4 +1,4 @@
-# realtimevoiceapi/models.py
+# realtimevoiceapi/audio/models.py
 """Type definitions for Realtime Voice API"""
 
 from typing import Union, Literal, Dict, Any, Optional, List

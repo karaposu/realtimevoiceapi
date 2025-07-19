@@ -1,3 +1,5 @@
+# here is realtimevoiceapi/big_lane/response_aggregator.py
+
 """
 Response Aggregator - Big Lane Component
 
@@ -13,9 +15,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict
 
-from ..stream_protocol import StreamEvent, StreamEventType, Response
-from ..audio_types import AudioBytes
-from ..exceptions import StreamError
+from ..core.stream_protocol import StreamEvent, StreamEventType, Response
+from ..core.audio_types import AudioBytes
+from ..core.exceptions import StreamError
 
 
 class ResponseState(Enum):

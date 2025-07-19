@@ -5,7 +5,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Union
-from .models import (
+from realtimevoiceapi.audio.models import (
     AudioFormatType, ModalityType, VoiceType, ToolChoiceType,
     TurnDetectionConfig, TranscriptionConfig, Tool
 )

@@ -81,9 +81,9 @@ except ImportError:
 # Import fast lane components (we'll enhance with big lane)
 from realtimevoiceapi.fast_lane.direct_audio_capture import DirectAudioCapture
 from realtimevoiceapi.fast_lane.fast_stream_manager import FastStreamManager, FastStreamConfig
-from realtimevoiceapi.audio_types import AudioConfig, AudioMetadata
-from realtimevoiceapi.stream_protocol import StreamState
-from realtimevoiceapi.message_protocol import MessageFactory
+from realtimevoiceapi.core.audio_types import AudioConfig, AudioMetadata
+from realtimevoiceapi.core.stream_protocol import StreamState
+from realtimevoiceapi.core.message_protocol import MessageFactory
 
 # Import big lane components
 from realtimevoiceapi.big_lane.audio_pipeline import (

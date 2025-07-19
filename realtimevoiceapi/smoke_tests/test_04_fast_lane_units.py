@@ -73,7 +73,7 @@ def test_vad_state_machine():
         from realtimevoiceapi.fast_lane.fast_vad_detector import (
             FastVADDetector, VADState, VADConfig
         )
-        from realtimevoiceapi.audio_types import AudioConfig
+        from realtimevoiceapi.core.audio_types import AudioConfig
         
         # Create VAD detector
         vad_config = VADConfig(
@@ -213,7 +213,7 @@ async def test_fast_stream_manager():
         from realtimevoiceapi.fast_lane.fast_stream_manager import (
             FastStreamManager, FastStreamConfig
         )
-        from realtimevoiceapi.stream_protocol import StreamState
+        from realtimevoiceapi.core.stream_protocol import StreamState
         
         # Create config
         config = FastStreamConfig(
@@ -282,7 +282,7 @@ async def test_audio_capture_real():
     
     try:
         from realtimevoiceapi.fast_lane.direct_audio_capture import DirectAudioCapture
-        from realtimevoiceapi.audio_types import AudioConfig
+        from realtimevoiceapi.core.audio_types import AudioConfig
         
         # Try to list devices first
         devices = DirectAudioCapture.list_devices()
@@ -347,9 +347,9 @@ async def test_full_integration():
     try:
         from realtimevoiceapi.fast_lane.fast_stream_manager import FastStreamManager, FastStreamConfig
         from realtimevoiceapi.fast_lane.fast_vad_detector import FastVADDetector, VADState
-        from realtimevoiceapi.audio_types import VADConfig
-        from realtimevoiceapi.audio_processor import AudioProcessor
-        from realtimevoiceapi.stream_protocol import StreamState  # ADD THIS IMPORT
+        from realtimevoiceapi.core.audio_types import VADConfig
+        from realtimevoiceapi.core.audio_processor import AudioProcessor
+        from realtimevoiceapi.core.stream_protocol import StreamState  # ADD THIS IMPORT
         
         # Create components
         vad = FastVADDetector(

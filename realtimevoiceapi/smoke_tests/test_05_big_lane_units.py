@@ -42,7 +42,7 @@ async def test_audio_pipeline_basic():
         from realtimevoiceapi.big_lane.audio_pipeline import (
             AudioPipeline, AudioValidator, ProcessorPriority
         )
-        from realtimevoiceapi.audio_types import AudioConfig
+        from realtimevoiceapi.core.audio_types import AudioConfig
         
         config = AudioConfig()
         pipeline = AudioPipeline(config=config)
@@ -179,7 +179,7 @@ async def test_pipeline_composition():
             AudioPipeline, AudioValidator, NoiseReducer,
             VolumeNormalizer, VADProcessor, ProcessorPriority
         )
-        from realtimevoiceapi.audio_types import AudioConfig
+        from realtimevoiceapi.core.audio_types import AudioConfig
         
         config = AudioConfig()
         pipeline = AudioPipeline(config=config)
@@ -238,7 +238,7 @@ async def test_pipeline_presets():
     
     try:
         from realtimevoiceapi.big_lane.audio_pipeline import PipelinePresets
-        from realtimevoiceapi.audio_types import AudioConfig
+        from realtimevoiceapi.core.audio_types import AudioConfig
         
         config = AudioConfig()
         
@@ -454,7 +454,7 @@ async def test_stream_orchestrator_basic():
             StreamOrchestrator, StreamRole, LoadBalancingStrategy
         )
         from realtimevoiceapi.big_lane.event_bus import EventBus
-        from realtimevoiceapi.provider_protocol import ProviderRegistry
+        from realtimevoiceapi.core.provider_protocol import ProviderRegistry
         
         # Setup
         event_bus = EventBus()
@@ -578,7 +578,7 @@ async def test_big_lane_integration():
             AudioPipeline, AudioValidator
         )
         from realtimevoiceapi.big_lane.event_bus import EventBus, Event
-        from realtimevoiceapi.audio_types import AudioConfig
+        from realtimevoiceapi.core.audio_types import AudioConfig
         
         # Create interconnected components
         event_bus = EventBus()

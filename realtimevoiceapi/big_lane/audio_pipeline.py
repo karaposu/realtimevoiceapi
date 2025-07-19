@@ -1,3 +1,5 @@
+# here is realtimevoiceapi/big_lane/audio_pipeline.py
+
 """
 Audio Pipeline - Big Lane Component
 
@@ -15,9 +17,9 @@ from enum import Enum
 
 import numpy as np
 
-from realtimevoiceapi.audio_types import AudioBytes, AudioConfig, AudioMetadata
-from realtimevoiceapi.audio_processor import AudioProcessor as BaseAudioProcessor
-from realtimevoiceapi.exceptions import AudioError
+from realtimevoiceapi.core.audio_types import AudioBytes, AudioConfig, AudioMetadata
+from realtimevoiceapi.core.audio_processor import AudioProcessor as BaseAudioProcessor
+from realtimevoiceapi.core.exceptions import AudioError
 
 
 class ProcessorPriority(Enum):

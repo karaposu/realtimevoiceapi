@@ -14,7 +14,7 @@ from enum import Enum
 import time
 import uuid
 
-from .stream_protocol import StreamState, StreamID
+from ..core.stream_protocol import StreamState, StreamID
 
 
 class SessionState(Enum):

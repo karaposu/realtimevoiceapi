@@ -49,9 +49,9 @@ except ImportError:
 from realtimevoiceapi.fast_lane.direct_audio_capture import DirectAudioCapture, DirectAudioPlayer
 from realtimevoiceapi.fast_lane.fast_vad_detector import FastVADDetector, VADState
 from realtimevoiceapi.fast_lane.fast_stream_manager import FastStreamManager, FastStreamConfig
-from realtimevoiceapi.audio_types import AudioConfig, VADConfig
-from realtimevoiceapi.stream_protocol import StreamState
-from realtimevoiceapi.message_protocol import MessageFactory
+from realtimevoiceapi.core.audio_types import AudioConfig, VADConfig
+from realtimevoiceapi.core.stream_protocol import StreamState
+from realtimevoiceapi.core.message_protocol import MessageFactory
 
 try:
     import sounddevice as sd

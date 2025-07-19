@@ -22,7 +22,7 @@ from typing import Optional, Tuple, Callable
 from dataclasses import dataclass
 from enum import Enum
 
-from realtimevoiceapi.audio_types import AudioBytes, AudioConfig, VADConfig, VADType
+from realtimevoiceapi.core.audio_types import AudioBytes, AudioConfig, VADConfig, VADType
 
 
 

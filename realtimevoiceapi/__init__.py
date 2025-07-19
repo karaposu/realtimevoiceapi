@@ -6,9 +6,9 @@ __version__ = "0.2.0"
 
 # Core imports for smoke tests
 from .voice_engine import VoiceEngine, VoiceEngineConfig
-from .audio_processor import AudioProcessor
-from .session import SessionConfig, SessionPresets
-from .exceptions import (
+from .core.audio_processor import AudioProcessor
+from realtimevoiceapi.session import SessionConfig, SessionPresets
+from .core.exceptions import (
     RealtimeError,
     ConnectionError,
     AuthenticationError,
@@ -18,7 +18,7 @@ from .exceptions import (
 )
 
 # Model imports for smoke tests
-from .models import (
+from .audio.models import (
     Tool,
     TurnDetectionConfig,
     TranscriptionConfig,
@@ -28,7 +28,7 @@ from .models import (
 )
 
 # Message protocol (used by smoke tests)
-from .message_protocol import (
+from .core.message_protocol import (
     ClientMessageType,
     ServerMessageType,
     MessageFactory,
@@ -37,7 +37,7 @@ from .message_protocol import (
 )
 
 # Audio types (used by smoke tests)
-from .audio_types import (
+from .core.audio_types import (
     AudioFormat,
     AudioConfig,
     VADConfig,
@@ -45,14 +45,14 @@ from .audio_types import (
 )
 
 # Stream protocol (used by smoke tests)
-from .stream_protocol import (
+from .core.stream_protocol import (
     StreamEvent,
     StreamEventType,
     StreamState,
 )
 
 # Session manager (used by smoke tests)
-from .session_manager import SessionManager
+from .session.session_manager import SessionManager
 
 __all__ = [
     "__version__",

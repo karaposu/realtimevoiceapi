@@ -41,9 +41,9 @@ logger = logging.getLogger(__name__)
 from realtimevoiceapi.voice_engine import (
     VoiceEngine, VoiceEngineConfig, create_voice_session, run_voice_engine
 )
-from realtimevoiceapi.stream_protocol import StreamState
-from realtimevoiceapi.exceptions import EngineError
-from realtimevoiceapi.audio_processor import AudioProcessor
+from realtimevoiceapi.core.stream_protocol import StreamState
+from realtimevoiceapi.core.exceptions import EngineError
+from realtimevoiceapi.core.audio_processor import AudioProcessor
 
 
 def generate_test_audio(duration_seconds: float = 1.0, frequency: float = 440.0) -> bytes:
@@ -280,7 +280,7 @@ async def test_audio_input():
         
         # Commit audio (manually since we're not using listening mode)
         # This would normally be handled by VAD
-        from realtimevoiceapi.message_protocol import MessageFactory
+        from realtimevoiceapi.core.message_protocol import MessageFactory
         commit_msg = MessageFactory.input_audio_buffer_commit()
         response_msg = MessageFactory.response_create()
         

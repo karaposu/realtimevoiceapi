@@ -85,10 +85,10 @@ except ImportError:
 from realtimevoiceapi.fast_lane.direct_audio_capture import DirectAudioCapture, DirectAudioPlayer
 from realtimevoiceapi.fast_lane.fast_vad_detector import FastVADDetector, VADState
 from realtimevoiceapi.fast_lane.fast_stream_manager import FastStreamManager, FastStreamConfig
-from realtimevoiceapi.audio_types import AudioConfig, VADConfig
-from realtimevoiceapi.stream_protocol import StreamState
-from realtimevoiceapi.message_protocol import MessageFactory, ClientMessageType
-from realtimevoiceapi.websocket_connection import WebSocketConnection
+from realtimevoiceapi.core.audio_types import AudioConfig, VADConfig
+from realtimevoiceapi.core.stream_protocol import StreamState
+from realtimevoiceapi.core.message_protocol import MessageFactory, ClientMessageType
+from realtimevoiceapi.connections.websocket_connection import WebSocketConnection
 
 try:
     import sounddevice as sd
@@ -327,8 +327,8 @@ class LoggingFastStreamManager(FastStreamManager):
         old_state = self._state
         
         # Import what we need
-        from realtimevoiceapi.websocket_connection import ConnectionConfig
-        from realtimevoiceapi.exceptions import StreamError
+        from realtimevoiceapi.connections.websocket_connection import ConnectionConfig
+        from realtimevoiceapi.core.exceptions import StreamError
         
         # Create the connection with proper config
         if self._state != StreamState.IDLE:

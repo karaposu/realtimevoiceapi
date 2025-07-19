@@ -22,19 +22,19 @@ import logging
 from collections import defaultdict
 
 from .base_strategy import BaseStrategy, EngineConfig
-from ..stream_protocol import (
+from ..core.stream_protocol import (
     StreamEvent, StreamEventType, StreamState,
     IStreamManager, StreamConfig, AudioFormat
 )
-from ..audio_types import AudioBytes, AudioConfig
-from ..provider_protocol import (
+from ..core.audio_types import AudioBytes, AudioConfig
+from ..core.provider_protocol import (
     Usage, Cost, IVoiceProvider, ProviderRegistry,
     ProviderConfig, IProviderSession
 )
-from ..websocket_connection import BigLaneConnection
-from ..message_protocol import MessageFactory, MessageValidator
+from ..connections.websocket_connection import BigLaneConnection
+from ..core.message_protocol import MessageFactory, MessageValidator
 from ..session_manager import SessionManager
-from ..exceptions import EngineError
+from ..core.exceptions import EngineError
 
 # These would be implemented in separate files
 from ..big_lane.audio_pipeline import AudioPipeline, AudioProcessor

@@ -1,5 +1,5 @@
 
-# here is websocket_connection.py
+# here is realtimevoiceapi/connections/websocket_connection.py
 """
 WebSocket Connection Manager
 
@@ -34,8 +34,8 @@ import logging
 import websockets
 from websockets.exceptions import ConnectionClosed, InvalidStatusCode, WebSocketException
 
-from .exceptions import ConnectionError, AuthenticationError
-from .message_protocol import MessageValidator, MessageParser
+from ..core.exceptions import ConnectionError, AuthenticationError
+from ..core.message_protocol import MessageValidator, MessageParser
 
 
 # ============== Types and Protocols ==============

@@ -39,7 +39,7 @@ def test_audio_types():
     print("\n🎵 Testing Audio Types Module...")
     
     try:
-        from realtimevoiceapi.audio_types import (
+        from realtimevoiceapi.core.audio_types import (
             AudioFormat, AudioConfig, AudioQuality,
             VADConfig, AudioMetadata, BufferConfig
         )
@@ -113,11 +113,11 @@ def test_stream_protocol():
     print("\n🌊 Testing Stream Protocol Module...")
     
     try:
-        from realtimevoiceapi.stream_protocol import (
+        from realtimevoiceapi.core.stream_protocol import (
             StreamEventType, StreamState, StreamEvent,
             StreamConfig, StreamCapabilities, StreamMetrics
         )
-        from realtimevoiceapi.audio_types import AudioFormat
+        from realtimevoiceapi.core.audio_types import AudioFormat
         import time
         
         # Test enums
@@ -199,12 +199,12 @@ def test_provider_protocol():
     print("\n🔌 Testing Provider Protocol Module...")
     
     try:
-        from realtimevoiceapi.provider_protocol import (
+        from realtimevoiceapi.core.provider_protocol import (
             ProviderFeature, ProviderCapabilities, CostModel,
             Usage, Cost, ProviderConfig, ProviderRegistry,
             VoiceConfig, FunctionDefinition
         )
-        from realtimevoiceapi.audio_types import AudioFormat
+        from realtimevoiceapi.core.audio_types import AudioFormat
         
         # Test ProviderFeature enum with actual values
         assert ProviderFeature.REALTIME_VOICE.value == "realtime_voice"
@@ -338,7 +338,7 @@ def test_message_protocol():
     print("\n✉️ Testing Message Protocol Module...")
     
     try:
-        from realtimevoiceapi.message_protocol import (
+        from realtimevoiceapi.core.message_protocol import (
             MessageFactory, MessageParser, MessageValidator,
             ClientMessageType, ServerMessageType
         )

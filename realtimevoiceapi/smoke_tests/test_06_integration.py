@@ -35,8 +35,8 @@ async def test_fast_lane_audio_flow():
         from realtimevoiceapi.fast_lane.direct_audio_capture import DirectAudioCapture
         from realtimevoiceapi.fast_lane.fast_vad_detector import FastVADDetector, VADState
         from realtimevoiceapi.fast_lane.fast_stream_manager import FastStreamManager, FastStreamConfig
-        from realtimevoiceapi.audio_types import AudioConfig, VADConfig
-        from realtimevoiceapi.message_protocol import MessageFactory
+        from realtimevoiceapi.core.audio_types import AudioConfig, VADConfig
+        from realtimevoiceapi.core.message_protocol import MessageFactory
         
         # Create components
         audio_config = AudioConfig()
@@ -127,7 +127,7 @@ async def test_big_lane_audio_flow():
         )
         from realtimevoiceapi.big_lane.event_bus import EventBus, Event
         from realtimevoiceapi.big_lane.response_aggregator import ResponseAggregator
-        from realtimevoiceapi.audio_types import AudioConfig
+        from realtimevoiceapi.core.audio_types import AudioConfig
         import numpy as np
         
         # Create event bus
@@ -245,7 +245,7 @@ async def test_strategy_integration():
     try:
         from realtimevoiceapi.strategies.base_strategy import EngineConfig
         from realtimevoiceapi.strategies.fast_lane_strategy import FastLaneStrategy
-        from realtimevoiceapi.stream_protocol import StreamState
+        from realtimevoiceapi.core.stream_protocol import StreamState
         
         # Create config
         config = EngineConfig(
@@ -293,10 +293,10 @@ async def test_message_websocket_integration():
     print("\n✉️ Testing Message + WebSocket Integration...")
     
     try:
-        from realtimevoiceapi.message_protocol import (
+        from realtimevoiceapi.core.message_protocol import (
             MessageFactory, MessageValidator, MessageParser
         )
-        from realtimevoiceapi.websocket_connection import (
+        from realtimevoiceapi.connections.websocket_connection import (
             ConnectionConfig, JsonSerializer, ConnectionMetrics
         )
         
@@ -357,8 +357,8 @@ async def test_session_management_integration():
     
     try:
         from realtimevoiceapi.session import SessionConfig, SessionPresets
-        from realtimevoiceapi.session_manager import SessionManager, SessionState
-        from realtimevoiceapi.message_protocol import MessageFactory
+        from realtimevoiceapi.session.session_manager import SessionManager, SessionState
+        from realtimevoiceapi.core.message_protocol import MessageFactory
         
         # Create session config
         config = SessionPresets.voice_assistant()
@@ -432,8 +432,8 @@ async def test_error_propagation():
     try:
         from realtimevoiceapi.big_lane.audio_pipeline import AudioPipeline, AudioValidator
         from realtimevoiceapi.big_lane.event_bus import EventBus
-        from realtimevoiceapi.audio_types import AudioConfig
-        from realtimevoiceapi.exceptions import AudioError
+        from realtimevoiceapi.core.audio_types import AudioConfig
+        from realtimevoiceapi.core.exceptions import AudioError
         
         event_bus = EventBus()
         event_bus.start()
@@ -503,7 +503,7 @@ async def test_performance_characteristics():
         from realtimevoiceapi.big_lane.audio_pipeline import (
             AudioPipeline, AudioValidator, NoiseReducer, VolumeNormalizer
         )
-        from realtimevoiceapi.audio_types import AudioConfig, VADConfig
+        from realtimevoiceapi.core.audio_types import AudioConfig, VADConfig
         
         # Generate test audio
         test_chunks = []

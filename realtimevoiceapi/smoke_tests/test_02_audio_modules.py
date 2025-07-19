@@ -32,8 +32,8 @@ def test_audio_processor_basics():
     print("\n🎵 Testing AudioProcessor Basics...")
     
     try:
-        from realtimevoiceapi.audio_processor import AudioProcessor
-        from realtimevoiceapi.audio_types import AudioConfig, ProcessingMode
+        from realtimevoiceapi.core.audio_processor import AudioProcessor
+        from realtimevoiceapi.core.audio_types import AudioConfig, ProcessingMode
         
         # Create processor
         processor = AudioProcessor(
@@ -88,8 +88,8 @@ def test_audio_chunking():
     print("\n🔪 Testing Audio Chunking...")
     
     try:
-        from realtimevoiceapi.audio_processor import AudioProcessor
-        from realtimevoiceapi.audio_types import AudioConfig
+        from realtimevoiceapi.core.audio_processor import AudioProcessor
+        from realtimevoiceapi.core.audio_types import AudioConfig
         
         processor = AudioProcessor()
         
@@ -136,8 +136,8 @@ def test_audio_quality_analysis():
         return True
     
     try:
-        from realtimevoiceapi.audio_processor import AudioProcessor
-        from realtimevoiceapi.audio_types import AudioMetadata, AudioFormat
+        from realtimevoiceapi.core.audio_processor import AudioProcessor
+        from realtimevoiceapi.core.audio_types import AudioMetadata, AudioFormat
         
         processor = AudioProcessor()
         
@@ -194,8 +194,8 @@ def test_audio_stream_buffer():
     print("\n💾 Testing Audio Stream Buffer...")
     
     try:
-        from realtimevoiceapi.audio_processor import AudioStreamBuffer
-        from realtimevoiceapi.audio_types import BufferConfig, AudioConfig
+        from realtimevoiceapi.core.audio_processor import AudioStreamBuffer
+        from realtimevoiceapi.core.audio_types import BufferConfig, AudioConfig
         
         # Test dynamic buffer (big lane)
         buffer_config = BufferConfig(
@@ -270,7 +270,7 @@ def test_audio_io():
     print("\n📁 Testing Audio File I/O...")
     
     try:
-        from realtimevoiceapi.audio_processor import AudioProcessor
+        from realtimevoiceapi.core.audio_processor import AudioProcessor
         import tempfile
         
         processor = AudioProcessor()
@@ -335,7 +335,7 @@ def test_audio_format_conversion():
         return True
     
     try:
-        from realtimevoiceapi.audio_processor import AudioProcessor
+        from realtimevoiceapi.core.audio_processor import AudioProcessor
         
         processor = AudioProcessor()
         
