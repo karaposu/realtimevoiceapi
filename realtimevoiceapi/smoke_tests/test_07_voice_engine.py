@@ -1,5 +1,5 @@
 
-#!/usr/bin/env python3
+# realtimevoiceapi/smoke_tests/test_07_voice_engine.py
 """
 Test 07: Voice Engine - Test the unified voice engine with REAL connections
 
@@ -358,7 +358,7 @@ async def test_listening_mode():
         return False
 
 async def test_convenience_methods():
-    """Test convenience methods like speak()"""
+    """Test convenience methods like text_2_audio_response()"""
     print("\n🛠️ Testing Convenience Methods...")
     
     api_key = os.getenv("OPENAI_API_KEY")
@@ -371,9 +371,9 @@ async def test_convenience_methods():
         # Connect first!
         await engine.connect()
         
-        # Test speak() method
-        print("  🔊 Testing speak() method...")
-        audio_data = await engine.speak("Testing voice engine convenience method.")
+        # Test text_2_audio_response() method
+        print("  🔊 Testing text_2_audio_response() method...")
+        audio_data = await engine.text_2_audio_response("Testing voice engine convenience method.")
         
         assert isinstance(audio_data, bytes)
         assert len(audio_data) > 1000  # Should have some audio
@@ -381,7 +381,7 @@ async def test_convenience_methods():
         # Calculate duration
         processor = AudioProcessor()
         duration_ms = processor.calculate_duration(audio_data)
-        print(f"  ✅ speak() returned {len(audio_data)} bytes ({duration_ms:.0f}ms)")
+        print(f"  ✅ text_2_audio_response() returned {len(audio_data)} bytes ({duration_ms:.0f}ms)")
         
         # Test that we're still connected
         assert engine.is_connected

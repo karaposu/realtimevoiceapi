@@ -20,6 +20,7 @@ from .core.audio_types import AudioBytes
 from .core.provider_protocol import Usage, Cost
 from .core.exceptions import EngineError
 from .strategies.base_strategy import EngineConfig
+import time
 
 # Import the base engine that handles implementation
 from .base_engine import BaseEngine
@@ -330,28 +331,30 @@ class VoiceEngine:
         await self._strategy.interrupt()
     
     # ============== Convenience Methods ==============
-    
-    async def speak(self, text: str, timeout: float = 30.0) -> AudioBytes:
+
+
+    async def text_2_audio_response(self, text: str, timeout: float = 30.0) -> AudioBytes:
         """
-        Convert text to speech.
-        
-        Args:
-            text: Text to convert
-            timeout: Maximum wait time
-            
-        Returns:
-            Audio data as bytes
-            
-        Raises:
-            EngineError: If timeout or no audio received
+        Convert text to speech with real-time playback.
         """
         self._ensure_connected()
         
         audio_future: asyncio.Future[bytes] = asyncio.Future()
         audio_chunks: List[bytes] = []
+        first_chunk_played = False
         
         def collect_audio(audio: AudioBytes):
+            nonlocal first_chunk_played
             audio_chunks.append(audio)
+            
+            # Play immediately for real-time experience
+            if self._base._audio_manager and self._base._audio_manager._player:
+                if not first_chunk_played:
+                    # Tiny delay only for first chunk to ensure stream is ready
+                    
+                    time.sleep(0.005)  # 5ms - imperceptible
+                    first_chunk_played = True
+                self._base._audio_manager._player.play_audio(audio)
         
         def on_done():
             if not audio_future.done():
@@ -383,6 +386,10 @@ class VoiceEngine:
             self.on_audio_response = old_audio
             self.on_response_done = old_done
             self._setup_event_handlers()
+    
+    
+
+            
     
     async def transcribe_audio_file(self, file_path: Union[str, Path]) -> str:
         """

@@ -19,11 +19,6 @@ from .strategies.fast_lane_strategy import FastLaneStrategy
 from .audio.audio_manager import AudioManager, AudioManagerConfig
 
 
-# For fast lane direct imports
-from .fast_lane.direct_audio_capture import DirectAudioCapture, DirectAudioPlayer
-from .fast_lane.fast_vad_detector import FastVADDetector
-
-
 class BaseEngine:
     """
     Base implementation for voice engine.
@@ -38,19 +33,14 @@ class BaseEngine:
         
         # Strategy
         self._strategy: Optional[BaseStrategy] = None
-
-        self._audio_manager: Optional[AudioManager] = None
         
-        # # Audio components (for fast lane)
-        # self.audio_capture: Optional[DirectAudioCapture] = None
-        # self.audio_player: Optional[DirectAudioPlayer] = None
-        # self.vad_detector: Optional[FastVADDetector] = None
+        # Audio manager (replaces individual components)
+        self._audio_manager: Optional[AudioManager] = None
         
         # State
         self._is_connected = False
         self._is_listening = False
         self._audio_processing_task: Optional[asyncio.Task] = None
-        self._audio_queue: Optional[asyncio.Queue] = None
         
         # Metrics
         self._session_start_time: Optional[float] = None
@@ -136,8 +126,6 @@ class BaseEngine:
         if not self._strategy._is_initialized:
             await self._strategy.initialize(config)
     
-
-
     async def setup_fast_lane_audio(
         self,
         sample_rate: int,
@@ -149,11 +137,18 @@ class BaseEngine:
         vad_speech_start_ms: int,
         vad_speech_end_ms: int
     ) -> None:
-        """Setup audio components for fast lane"""
+        """Setup audio manager for fast lane"""
         try:
-
-         
-
+            # Create VAD config if enabled
+            vad_config = None
+            if vad_enabled:
+                vad_config = VADConfig(
+                    type=VADType.ENERGY_BASED,
+                    energy_threshold=vad_threshold,
+                    speech_start_ms=vad_speech_start_ms,
+                    speech_end_ms=vad_speech_end_ms
+                )
+            
             # Create audio manager config
             audio_config = AudioManagerConfig(
                 input_device=input_device,
@@ -163,43 +158,16 @@ class BaseEngine:
                 vad_enabled=vad_enabled,
                 vad_config=vad_config
             )
-                
-            # Setup VAD if enabled
-            if vad_enabled:
-                vad_config = VADConfig(
-                    type=VADType.ENERGY_BASED,
-                    energy_threshold=vad_threshold,
-                    speech_start_ms=vad_speech_start_ms,
-                    speech_end_ms=vad_speech_end_ms
-                )
-                
-                self.vad_detector = FastVADDetector(
-                    config=vad_config,
-                    audio_config=audio_config
-                )
             
-            # Setup audio capture
-            self.audio_capture = DirectAudioCapture(
-                device=input_device,
-                config=audio_config
-            )
-            
-            # Setup audio player
-            self.audio_player = DirectAudioPlayer(
-                device=output_device,
-                config=audio_config
-            )
+            # Create and initialize audio manager
+            self._audio_manager = AudioManager(audio_config, logger=self.logger)
+            await self._audio_manager.initialize()
             
         except Exception as e:
-            # Clean up any partially created resources
+            # Clean up if initialization fails
             self.logger.error(f"Failed to setup audio: {e}")
-            self.audio_capture = None
-            self.audio_player = None
-            self.vad_detector = None
+            self._audio_manager = None
             raise
-
-
-    
     
     # ============== Connection Management ==============
     
@@ -226,24 +194,8 @@ class BaseEngine:
             return
         
         try:
-            # Stop listening first
-            if self._is_listening:
-                await self.stop_audio_processing()
-            
-            # Disconnect strategy
-            if self._strategy:
-                await self._strategy.disconnect()
-            
-            # Cleanup audio components
-            if self.audio_player:
-                self.audio_player.stop_playback()
-            
-            self._is_connected = False
-            
-            # Reset strategy initialization state for potential reconnection
-            if hasattr(self._strategy, '_is_initialized'):
-                self._strategy._is_initialized = False
-            
+            # Use the comprehensive cleanup
+            await self.cleanup()
             self.logger.info("Disconnected from voice API")
             
         except Exception as e:
@@ -261,8 +213,8 @@ class BaseEngine:
         # Start audio input through strategy
         await self._strategy.start_audio_input()
         
-        # For fast lane with VAD, start processing loop
-        if self._mode == "fast" and self.vad_detector:
+        # For fast lane with audio manager, start processing loop
+        if self._mode == "fast" and self._audio_manager:
             self._audio_processing_task = asyncio.create_task(
                 self._audio_processing_loop()
             )
@@ -275,6 +227,9 @@ class BaseEngine:
         if not self._is_listening:
             return
         
+        # Mark as not listening first
+        self._is_listening = False
+        
         # Stop audio processing task
         if self._audio_processing_task:
             self._audio_processing_task.cancel()
@@ -284,57 +239,49 @@ class BaseEngine:
                 pass
             self._audio_processing_task = None
         
+        # Stop audio capture through manager
+        if self._audio_manager:
+            await self._audio_manager.stop_capture()
+        
         # Stop audio input through strategy
         await self._strategy.stop_audio_input()
         
-        self._is_listening = False
         self.logger.info("Stopped listening for audio input")
-
-
-
-    # In base_engine.py, update _audio_processing_loop:
-
+    
     async def _audio_processing_loop(self) -> None:
-        """
-        Process audio input for fast lane with VAD.
-        
-        This runs in a background task when listening is active.
-        """
-        if not self.audio_capture:
-            self.logger.error("No audio capture available")
+        """Process audio input for fast lane with VAD"""
+        if not self._audio_manager:
+            self.logger.error("No audio manager available")
             return
         
-        # Get audio queue from capture
-        self._audio_queue = await self.audio_capture.start_async_capture()
+        # Get audio queue from manager
+        try:
+            audio_queue = await self._audio_manager.start_capture()
+        except Exception as e:
+            self.logger.error(f"Failed to start audio capture: {e}")
+            return
         
         try:
-            while self._is_listening and self._is_connected:  # Check both flags
+            while self._is_listening and self._is_connected:
                 try:
                     # Get audio chunk
-                    audio_chunk = await asyncio.wait_for(
-                        self._audio_queue.get(),
-                        timeout=0.1
-                    )
+                    audio_chunk = await asyncio.wait_for(audio_queue.get(), timeout=0.1)
                     
                     # Check if we should still process
                     if not self._is_listening or not self._is_connected:
                         break
                     
-                    # Check strategy state before sending
+                    # Check strategy state
                     if self._strategy and self._strategy.get_state() in [
                         StreamState.ACTIVE, StreamState.STARTING
                     ]:
-                        # Process through VAD if enabled
-                        if self.vad_detector:
-                            vad_state = self.vad_detector.process_chunk(audio_chunk)
-                            
-                            # Only send during speech
-                            if vad_state.value in ["speech_starting", "speech"]:
-                                await self._strategy.send_audio(audio_chunk)
-                        else:
-                            # No VAD, send everything
-                            await self._strategy.send_audio(audio_chunk)
+                        # Process through VAD
+                        vad_state = self._audio_manager.process_vad(audio_chunk)
                         
+                        # Send if speech or no VAD
+                        if not vad_state or vad_state in ["speech_starting", "speech"]:
+                            await self._strategy.send_audio(audio_chunk)
+                    
                 except asyncio.TimeoutError:
                     continue
                 except asyncio.CancelledError:
@@ -353,17 +300,13 @@ class BaseEngine:
                                 data={"error": str(e)}
                             )
                             self._event_handlers[StreamEventType.STREAM_ERROR](error_event)
-                            
+                        
         except Exception as e:
             self.logger.error(f"Fatal audio processing error: {e}")
         finally:
-            # Ensure capture is stopped
-            if self.audio_capture:
-                try:
-                    self.audio_capture.stop_capture()
-                except Exception as e:
-                    self.logger.debug(f"Error stopping capture in cleanup: {e}")
-    
+            # Stop capture through manager
+            if self._audio_manager:
+                await self._audio_manager.stop_capture()
     
     # ============== Event Management ==============
     
@@ -446,39 +389,31 @@ class BaseEngine:
             )
         }
         
+        # Strategy metrics
         if self._strategy:
             try:
                 strategy_metrics = self._strategy.get_metrics()
                 metrics.update(strategy_metrics)
             except Exception as e:
                 self.logger.error(f"Error getting strategy metrics: {e}")
-                
-        components = {
-                "audio_capture": self.audio_capture,
-                "audio_player": self.audio_player,
-                "vad": self.vad_detector
-            }
         
-
-        for name, component in components.items():
-            if component and hasattr(component, 'get_metrics'):
-                try:
-                    component_metrics = component.get_metrics()
-                    metrics[name] = component_metrics
-                except Exception as e:
-                    self.logger.error(f"Error getting {name} metrics: {e}")
-                    metrics[name] = {"error": str(e)}
+        # Audio metrics
+        if self._audio_manager:
+            try:
+                metrics["audio"] = self._audio_manager.get_metrics()
+            except Exception as e:
+                self.logger.error(f"Error getting audio metrics: {e}")
+                metrics["audio"] = {"error": str(e)}
         
         return metrics
-        
-
+    
     async def get_usage(self):
         """Get usage statistics"""
         if self._strategy:
             return self._strategy.get_usage()
         
         # Return empty usage if no strategy
-        from ..core.provider_protocol import Usage
+        from .core.provider_protocol import Usage
         return Usage()
     
     async def estimate_cost(self):
@@ -487,22 +422,25 @@ class BaseEngine:
             return await self._strategy.estimate_cost()
         
         # Return zero cost if no strategy
-        from ..core.provider_protocol import Cost
+        from .core.provider_protocol import Cost
         return Cost()
     
     # ============== Audio Playback ==============
     
     def play_audio(self, audio_data: AudioBytes) -> None:
-        """Play audio through the audio player"""
-        if self.audio_player:
-            self.audio_player.play_audio(audio_data)
+        """Play audio through the audio manager"""
+        if self._audio_manager:
+            self._audio_manager.play_audio(audio_data)
     
     # ============== Cleanup ==============
     
     async def cleanup(self) -> None:
         """Cleanup all resources safely"""
         try:
-            # First, stop any audio processing
+            # Mark as not listening first
+            self._is_listening = False
+            
+            # Cancel audio processing task
             if self._audio_processing_task and not self._audio_processing_task.done():
                 self._audio_processing_task.cancel()
                 try:
@@ -511,63 +449,27 @@ class BaseEngine:
                     pass
                 self._audio_processing_task = None
             
-            # Stop audio capture
-            if self.audio_capture and hasattr(self.audio_capture, 'stop_capture'):
+            # Cleanup audio manager
+            if self._audio_manager:
                 try:
-                    self.audio_capture.stop_capture()
+                    await self._audio_manager.cleanup()
                 except Exception as e:
-                    self.logger.error(f"Error stopping audio capture: {e}")
+                    self.logger.error(f"Audio manager cleanup error: {e}")
+                self._audio_manager = None
             
-            # Stop audio playback
-            if self.audio_player and hasattr(self.audio_player, 'stop_playback'):
+            # Disconnect strategy if connected
+            if self._is_connected and self._strategy:
                 try:
-                    self.audio_player.stop_playback()
-                except Exception as e:
-                    self.logger.error(f"Error stopping audio player: {e}")
-            
-            # Clear audio queue
-            if self._audio_queue:
-                while not self._audio_queue.empty():
-                    try:
-                        self._audio_queue.get_nowait()
-                    except asyncio.QueueEmpty:
-                        break
-                self._audio_queue = None
-            
-            # Now disconnect if connected
-            if self._is_connected:
-                try:
-                    if self._strategy:
-                        await self._strategy.disconnect()
+                    await self._strategy.disconnect()
                 except Exception as e:
                     self.logger.error(f"Strategy disconnect error: {e}")
                 self._is_connected = False
             
-            # Finally, clear all references
+            # Clear references
             self._strategy = None
-            self.audio_capture = None
-            self.audio_player = None
-            self.vad_detector = None
             self._event_handlers.clear()
-            
-            # Reset state
-            self._is_listening = False
             self._session_start_time = None
             
         except Exception as e:
             self.logger.error(f"Cleanup error: {e}")
             # Don't re-raise to avoid cascading failures
-
-    async def do_disconnect(self) -> None:
-        """Internal disconnection logic"""
-        if not self._is_connected:
-            return
-        
-        try:
-            # Use the comprehensive cleanup
-            await self.cleanup()
-            self.logger.info("Disconnected from voice API")
-            
-        except Exception as e:
-            self.logger.error(f"Disconnect error: {e}")
-            raise

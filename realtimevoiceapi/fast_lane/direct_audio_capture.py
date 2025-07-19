@@ -7,14 +7,21 @@ Direct Audio Capture - Fast Lane Component
 Hardware-level audio capture using sounddevice for minimal latency.
 Optimized for real-time voice streaming with pre-allocated buffers.
 """
+"""
+Direct Audio Capture - Fast Lane Component
+
+Hardware-level audio capture using sounddevice for minimal latency.
+Optimized for real-time voice streaming with pre-allocated buffers.
+"""
 
 import asyncio
 import queue
 import logging
+import threading
+import time
 from typing import Optional, Callable, Union, Dict, Any
 from dataclasses import dataclass
 import numpy as np
-import time
 
 try:
     import sounddevice as sd
@@ -291,7 +298,7 @@ class DirectAudioPlayer(AudioPlayerInterface):
     """
     Direct audio playback using sounddevice.
     
-    Optimized for low-latency playback of voice responses.
+    Optimized for ultra-low latency real-time voice.
     """
     
     def __init__(
@@ -310,11 +317,22 @@ class DirectAudioPlayer(AudioPlayerInterface):
         self._total_bytes_played = 0
         self._play_start_time: Optional[float] = None
         self._last_play_time: Optional[float] = None
-        self._is_playing = False
         self.device_info = {}
+        
+        # Stream management
+        self._stream: Optional[sd.OutputStream] = None
+        self._is_active = False
+        self._stream_lock = threading.Lock()
+        
+        # Small ring buffer for timing issues
+        self._buffer = bytearray()
+        self._buffer_lock = threading.Lock()
         
         # Setup device
         self._setup_device()
+        
+        # Pre-initialize stream for zero-latency start
+        self._initialize_stream()
     
     def _setup_device(self):
         """Setup and validate audio device"""
@@ -335,11 +353,61 @@ class DirectAudioPlayer(AudioPlayerInterface):
             self.logger.warning(f"Could not get device info: {e}")
             self.device_info = {'name': 'Unknown', 'index': self.device}
     
+    def _initialize_stream(self):
+        """Pre-initialize the audio stream"""
+        try:
+            with self._stream_lock:
+                if self._stream is None:
+                    self._stream = sd.OutputStream(
+                        samplerate=self.config.sample_rate,
+                        channels=self.config.channels,
+                        dtype='int16',
+                        device=self.device,
+                        blocksize=int(self.config.sample_rate * 0.01),  # 10ms blocks
+                        latency='low',
+                        callback=self._audio_callback
+                    )
+                    self._stream.start()
+                    self._is_active = True
+                    self.logger.debug("Audio stream pre-initialized")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize stream: {e}")
+    
+    def _audio_callback(self, outdata, frames, time_info, status):
+        """
+        Stream callback - runs in audio thread.
+        Pulls data from buffer with minimal latency.
+        """
+        if status:
+            self.logger.debug(f"Stream status: {status}")
+        
+        with self._buffer_lock:
+            # Calculate bytes needed
+            bytes_needed = frames * self.config.channels * 2  # 16-bit = 2 bytes
+            
+            if len(self._buffer) >= bytes_needed:
+                # We have enough data
+                data = self._buffer[:bytes_needed]
+                self._buffer = self._buffer[bytes_needed:]
+                
+                # Convert to numpy array
+                audio_array = np.frombuffer(data, dtype=np.int16)
+                
+                # Reshape if multi-channel
+                if self.config.channels > 1:
+                    audio_array = audio_array.reshape(-1, self.config.channels)
+                
+                # Copy to output
+                outdata[:] = audio_array.reshape(outdata.shape)
+            else:
+                # Not enough data - output silence
+                outdata.fill(0)
+    
     @property
     def is_playing(self) -> bool:
         """Check if currently playing audio"""
-        # Check if sounddevice is actively playing
-        return sd.get_stream() is not None and sd.get_stream().active
+        with self._buffer_lock:
+            return len(self._buffer) > 0 or self._is_active
     
     def play_audio(self, audio_data: AudioBytes) -> bool:
         """
@@ -352,8 +420,13 @@ class DirectAudioPlayer(AudioPlayerInterface):
             True if played successfully
         """
         try:
-            # Convert bytes to numpy array
-            audio_array = np.frombuffer(audio_data, dtype=np.int16)
+            # Ensure stream is ready
+            if self._stream is None:
+                self._initialize_stream()
+            
+            # Add to buffer
+            with self._buffer_lock:
+                self._buffer.extend(audio_data)
             
             # Update metrics
             self._chunks_played += 1
@@ -364,14 +437,6 @@ class DirectAudioPlayer(AudioPlayerInterface):
                 self._play_start_time = current_time
             self._last_play_time = current_time
             
-            # Play asynchronously (non-blocking)
-            sd.play(
-                audio_array,
-                samplerate=self.config.sample_rate,
-                device=self.device,
-                latency='low'
-            )
-            
             return True
             
         except Exception as e:
@@ -380,22 +445,30 @@ class DirectAudioPlayer(AudioPlayerInterface):
     
     def stop_playback(self):
         """Stop any ongoing playback"""
-        sd.stop()
+        with self._buffer_lock:
+            self._buffer.clear()
+        
+        # Keep stream open for next audio
+        # This maintains low latency for next playback
     
     def wait_until_done(self):
         """Wait until playback is complete"""
-        sd.wait()
+        while True:
+            with self._buffer_lock:
+                if len(self._buffer) == 0:
+                    break
+            time.sleep(0.01)  # 10ms check interval
     
     def get_metrics(self) -> Dict[str, Any]:
         """Get player metrics"""
+        with self._buffer_lock:
+            buffer_ms = (len(self._buffer) / 2 / self.config.sample_rate) * 1000 if self._buffer else 0
+        
         total_duration = 0.0
         if self._play_start_time and self._chunks_played > 0:
             if self.is_playing and self._last_play_time:
-                # Still playing, calculate up to last chunk
                 total_duration = self._last_play_time - self._play_start_time
             else:
-                # Estimate based on data played
-                # 16-bit audio = 2 bytes per sample
                 total_samples = self._total_bytes_played / 2
                 total_duration = total_samples / self.config.sample_rate
         
@@ -404,6 +477,7 @@ class DirectAudioPlayer(AudioPlayerInterface):
             "total_mb_played": self._total_bytes_played / (1024 * 1024),
             "total_duration_seconds": total_duration,
             "is_playing": self.is_playing,
+            "buffer_ms": buffer_ms,
             "device": self.device_info.get('name', 'Unknown'),
             "sample_rate": self.config.sample_rate
         }
@@ -412,11 +486,21 @@ class DirectAudioPlayer(AudioPlayerInterface):
         """Get device information"""
         return self.device_info.copy()
     
-
+    def cleanup(self):
+        """Full cleanup (only on shutdown)"""
+        with self._stream_lock:
+            if self._stream:
+                self._stream.stop()
+                self._stream.close()
+                self._stream = None
+            self._is_active = False
+        
+        with self._buffer_lock:
+            self._buffer.clear()
+    
     def __del__(self):
-        """Ensure cleanup on deletion"""
+        """Cleanup on deletion"""
         try:
-            if hasattr(self, 'device') and sd:
-                sd.stop()
+            self.cleanup()
         except Exception:
-            pass  # Ignore errors during cleanup
+            pass
