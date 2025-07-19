@@ -241,31 +241,87 @@ class InteractiveVoiceChat:
         await asyncio.sleep(0.5)
         
         print("✅ Voice chat ready!")
-        
+
     async def start_recording_async(self):
         """Start recording audio (async)"""
-        if self.is_recording or self.is_processing:
+        if self.is_recording:
+            self.logger.warning("Already recording")
             return
+        
+        # Check if we need to interrupt an ongoing response
+        if self.is_processing or self.response_count > 0:
+            self.logger.info("Interrupting ongoing response")
+            
+            # Stop audio playback immediately
+            self.audio_buffer.stop()
+            
+            # Cancel the response on the server
+            try:
+                cancel_msg = MessageFactory.response_cancel()
+                await self.stream_manager.connection.send(cancel_msg)
+                self.logger.debug("Sent response.cancel")
+            except Exception as e:
+                self.logger.error(f"Failed to cancel response: {e}")
+            
+            # Reset state
+            self.is_processing = False
+            self.response_count = 0
+            self.got_text_response = False
+            
+            # Wait a bit for cancellation to process
+            await asyncio.sleep(0.1)
+        
+        self.interaction_num += 1
+        self.logger.info(f"=== INTERACTION {self.interaction_num} START ===")
         
         self.is_recording = True
         self.recording_buffer.clear()
+        self.timings["recording_start"] = time.time()
         
+        self.logger.info("Recording started")
         print("\n🔴 Recording... (release to send)")
         
         try:
             # Clear input buffer first
+            self.logger.debug("Clearing input buffer")
             clear_msg = MessageFactory.input_audio_buffer_clear()
             await self.stream_manager.connection.send(clear_msg)
             await asyncio.sleep(0.1)
             
             # Start audio capture
             self.audio_queue = await self.capture.start_async_capture()
+            self.logger.info("Audio capture started")
             
             # Start processing loop
             self.recording_task = asyncio.create_task(self._process_audio_chunks())
         except Exception as e:
-            logger.error(f"Error starting recording: {e}")
+            self.logger.error(f"Error starting recording: {e}", exc_info=True)
             self.is_recording = False
+        
+    # async def start_recording_async(self):
+    #     """Start recording audio (async)"""
+    #     if self.is_recording or self.is_processing:
+    #         return
+        
+    #     self.is_recording = True
+    #     self.recording_buffer.clear()
+        
+    #     print("\n🔴 Recording... (release to send)")
+        
+    #     try:
+    #         # Clear input buffer first
+    #         clear_msg = MessageFactory.input_audio_buffer_clear()
+    #         await self.stream_manager.connection.send(clear_msg)
+    #         await asyncio.sleep(0.1)
+            
+    #         # Start audio capture
+    #         self.audio_queue = await self.capture.start_async_capture()
+            
+    #         # Start processing loop
+    #         self.recording_task = asyncio.create_task(self._process_audio_chunks())
+    #     except Exception as e:
+    #         logger.error(f"Error starting recording: {e}")
+    #         self.is_recording = False
     
     def start_recording(self):
         """Start recording (sync wrapper)"""

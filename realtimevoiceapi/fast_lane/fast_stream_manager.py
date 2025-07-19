@@ -66,6 +66,7 @@ class FastStreamManager(IStreamManager):
         self._audio_callback: Optional[Callable[[AudioBytes], None]] = None
         self._text_callback: Optional[Callable[[str], None]] = None
         self._error_callback: Optional[Callable[[Exception], None]] = None
+        self._response_done_callback: Optional[Callable[[], None]] = None  # ADD THIS
         
         # Minimal metrics
         self._start_time = 0.0
@@ -74,6 +75,10 @@ class FastStreamManager(IStreamManager):
         
         # Pre-create session config message
         self._session_config = self._create_session_config()
+
+    def set_response_done_callback(self, callback: Callable[[], None]):
+        """Set response done callback"""
+        self._response_done_callback = callback
     
     def _create_session_config(self) -> dict:
         """Pre-create session configuration"""
@@ -269,6 +274,10 @@ class FastStreamManager(IStreamManager):
                 self._error_callback(
                     StreamError(error.get("message", "Unknown error"))
                 )
+        elif msg_type == "response.done":
+            # Emit text/audio done callbacks if needed
+            if self._response_done_callback:
+                self._response_done_callback()
     
     @staticmethod
     def _encode_audio_fast(audio_bytes: AudioBytes) -> str:

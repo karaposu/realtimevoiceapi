@@ -50,6 +50,12 @@ Minimal features - Just voice I/O
         self.audio_capture: Optional[DirectAudioCapture] = None
         self.vad_detector: Optional[FastVADDetector] = None
         self.stream_manager: Optional[FastStreamManager] = None
+
+        self._audio_queue: Optional[asyncio.Queue] = None  # ADD THIS
+        self._audio_task: Optional[asyncio.Task] = None    # ADD THIS
+        self._error_callback: Optional[Callable] = None    # ADD THIS
+
+
         
         # Direct callbacks
         self._event_handlers: Dict[StreamEventType, Callable] = {}
@@ -180,34 +186,61 @@ Minimal features - Just voice I/O
             )
         
         # Start capture and get the queue
-        self.audio_queue = await self.audio_capture.start_async_capture()
-        
-        # Start processing audio from the queue
+        # self.audio_queue = await self.audio_capture.start_async_capture()
+        self._audio_queue = await self.audio_capture.start_async_capture()  # Use self._audio_queue
+
         self._audio_task = asyncio.create_task(self._process_audio_queue())
-
-
+        
+      
+    
     async def _process_audio_queue(self):
-        """Process audio from the capture queue"""
-        while self.state == StreamState.STREAMING:
-            try:
-                # Get audio chunk from queue
-                audio_chunk = await self.audio_queue.get()
+        """Process audio queue in background"""
+        try:
+            # while self.state == StreamState.STREAMING:  # Changed from self.state
+            while self._is_connected:  # Use the internal connected flag
+
+                try:
+                    # Get audio chunk from queue
+                    audio_chunk = await asyncio.wait_for(
+                        self._audio_queue.get(),
+                        timeout=0.1
+                    )
+                    
+                    # Send to stream
+                    await self.stream_manager.send_audio(audio_chunk)
+                    
+                except asyncio.TimeoutError:
+                    continue
+                except Exception as e:
+                    self.logger.error(f"Audio queue processing error: {e}")
+                    if self._error_callback:
+                        self._error_callback(e)
+        except asyncio.CancelledError:
+            self.logger.debug("Audio queue processing cancelled")
+
+
+    # async def _process_audio_queue(self):
+    #     """Process audio from the capture queue"""
+    #     while self.state == StreamState.STREAMING:
+    #         try:
+    #             # Get audio chunk from queue
+    #             audio_chunk = await self.audio_queue.get()
                 
-                # Process through VAD if enabled
-                if self.vad_detector and self.config.enable_vad:
-                    vad_state = self.vad_detector.process_chunk(audio_chunk)
+    #             # Process through VAD if enabled
+    #             if self.vad_detector and self.config.enable_vad:
+    #                 vad_state = self.vad_detector.process_chunk(audio_chunk)
                     
-                    # Only send during speech
-                    if vad_state.value in ["speech_starting", "speech"]:
-                        await self._send_audio_chunk(audio_chunk)
-                else:
-                    # No VAD, send everything
-                    await self._send_audio_chunk(audio_chunk)
+    #                 # Only send during speech
+    #                 if vad_state.value in ["speech_starting", "speech"]:
+    #                     await self._send_audio_chunk(audio_chunk)
+    #             else:
+    #                 # No VAD, send everything
+    #                 await self._send_audio_chunk(audio_chunk)
                     
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.error(f"Audio processing error: {e}")
+    #         except asyncio.CancelledError:
+    #             break
+    #         except Exception as e:
+    #             self.logger.error(f"Audio processing error: {e}")
 
     async def _send_audio_chunk(self, audio_chunk: AudioBytes):
         """Send audio chunk to the API"""
@@ -231,8 +264,18 @@ Minimal features - Just voice I/O
         
         self.audio_capture.stop_capture()
         self._is_capturing = False
+
+        if self._audio_task:
+            self._audio_task.cancel()
+            try:
+                await self._audio_task
+            except asyncio.CancelledError:
+                pass
+            self._audio_task = None
         
         self.logger.info("Audio capture stopped")
+        
+       
     
     async def send_audio(self, audio_data: AudioBytes) -> None:
         """Send audio directly to stream"""
@@ -303,6 +346,22 @@ Minimal features - Just voice I/O
                     )
                 )
             )
+        elif event_type == StreamEventType.STREAM_ENDED:
+            # Set response done callback
+            if hasattr(self.stream_manager, 'set_response_done_callback'):
+                self.stream_manager.set_response_done_callback(
+                    lambda: handler(
+                        StreamEvent(
+                            type=event_type,
+                            stream_id=self.stream_manager.stream_id,
+                            timestamp=time.time(),
+                            data={}
+                        )
+                    )
+                )
+        elif event_type == StreamEventType.STREAM_ERROR:
+            # Set error callback
+            self._error_callback = handler
     
     async def interrupt(self) -> None:
         """Interrupt current response"""

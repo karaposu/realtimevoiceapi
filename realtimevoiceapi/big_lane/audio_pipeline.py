@@ -309,24 +309,24 @@ class EchoCanceller(AudioProcessor):
         """Reset buffers"""
         self.reference_buffer.fill(0)
 
-
 class VADProcessor(AudioProcessor):
     """Voice Activity Detection processor for filtering"""
     
     def __init__(
         self, 
         threshold: float = 0.02,
-        min_speech_duration_ms: int = 200
+        min_speech_duration_ms: int = 200,
+        pass_through_mode: bool = False  # Add this
     ):
         super().__init__("VADProcessor", ProcessorPriority.NORMAL)
         self.threshold = threshold
         self.min_speech_samples = int(min_speech_duration_ms * 24)  # 24kHz
+        self.pass_through_mode = pass_through_mode  # Add this
         self.is_speech = False
         self.speech_buffer = []
         self.silence_samples = 0
-        self.accumulated_samples = 0  # Track total accumulated
+        self.accumulated_samples = 0
         
-    
     async def process(
         self, 
         audio: AudioBytes,
@@ -336,22 +336,29 @@ class VADProcessor(AudioProcessor):
         start_time = time.time()
         
         try:
+            # Pass-through mode for testing
+            if self.pass_through_mode:
+                self.metrics.processed_chunks += 1
+                self.metrics.bytes_processed += len(audio)
+                return audio
+            
             # Quick energy check
             samples = np.frombuffer(audio, dtype=np.int16).astype(np.float32)
             samples = samples / 32768.0
             
             energy = np.sqrt(np.mean(samples ** 2))
             
+            # Always add to buffer, don't filter immediately
+            self.speech_buffer.append(audio)
+            self.accumulated_samples += len(audio) // 2
+            
             if energy > self.threshold:
                 # Speech detected
                 self.is_speech = True
                 self.silence_samples = 0
-                self.speech_buffer.append(audio)
-                self.accumulated_samples += len(audio) // 2  # 2 bytes per sample
                 
-                # Check if we have enough speech accumulated
+                # Return accumulated audio once we have enough
                 if self.accumulated_samples >= self.min_speech_samples:
-                    # Return accumulated speech
                     result = b''.join(self.speech_buffer)
                     self.speech_buffer = []
                     self.accumulated_samples = 0
@@ -360,28 +367,25 @@ class VADProcessor(AudioProcessor):
                     self.metrics.bytes_processed += len(result)
                     
                     return result
-                else:
-                    # Still accumulating
-                    return None
             else:
-                # Silence detected
+                # Possible silence
                 self.silence_samples += len(samples)
                 
-                if self.is_speech and self.silence_samples > 12000:  # 500ms silence
-                    # End of speech
+                # If we have accumulated speech and now hit silence, return it
+                if self.is_speech and self.speech_buffer and self.silence_samples > 6000:  # 250ms
+                    result = b''.join(self.speech_buffer)
+                    self.speech_buffer = []
+                    self.accumulated_samples = 0
                     self.is_speech = False
+                    self.silence_samples = 0
                     
-                    if self.speech_buffer:
-                        result = b''.join(self.speech_buffer)
-                        self.speech_buffer = []
-                        self.accumulated_samples = 0
-                        
-                        self.metrics.processed_chunks += 1
-                        self.metrics.bytes_processed += len(result)
-                        
-                        return result
-                
-                return None  # Filter out silence
+                    self.metrics.processed_chunks += 1
+                    self.metrics.bytes_processed += len(result)
+                    
+                    return result
+            
+            # Don't return None unless we're sure it's not speech
+            return None
                 
         except Exception as e:
             self.logger.error(f"VAD processing failed: {e}")
@@ -390,15 +394,13 @@ class VADProcessor(AudioProcessor):
             
         finally:
             self.metrics.processing_time_ms += (time.time() - start_time) * 1000
-
+    
     def reset(self) -> None:
         """Reset VAD state"""
         self.is_speech = False
         self.speech_buffer = []
         self.silence_samples = 0
         self.accumulated_samples = 0
-
-# ============== Audio Pipeline ==============
 
 class AudioPipeline:
     """
@@ -567,7 +569,8 @@ class PipelinePresets:
                 AudioValidator(config),
                 NoiseReducer(noise_floor=0.02),
                 VolumeNormalizer(target_level=0.3),
-                VADProcessor(threshold=0.02)
+                # VADProcessor(threshold=0.02)
+                VADProcessor(threshold=0.01, min_speech_duration_ms=50, pass_through_mode=True)
             ]
         )
     

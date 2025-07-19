@@ -1,6 +1,5 @@
 # here is realtimevoiceapi/voice_engine.py
 
-
 """
 Unified Voice Engine
 
@@ -190,6 +189,7 @@ class VoiceEngine:
         self._create_strategy()
         
         # Audio components (for fast lane)
+        # TODO: Move these to FastLaneStrategy for better encapsulation
         self.audio_capture: Optional[DirectAudioCapture] = None
         self.audio_player: Optional[DirectAudioPlayer] = None
         self.vad_detector: Optional[FastVADDetector] = None
@@ -199,6 +199,7 @@ class VoiceEngine:
         self.on_text_response: Optional[Callable[[str], None]] = None
         self.on_error: Optional[Callable[[Exception], None]] = None
         self.on_function_call: Optional[Callable[[Dict[str, Any]], Any]] = None
+        self.on_response_done: Optional[Callable[[], None]] = None
         
         # State
         self._is_connected = False
@@ -207,6 +208,29 @@ class VoiceEngine:
         
         # Metrics
         self._session_start_time: Optional[float] = None
+    
+    # ============== State Management Properties ==============
+    
+    @property
+    def is_connected(self) -> bool:
+        """Check if engine is properly connected"""
+        return (
+            self._is_connected and 
+            self._strategy is not None and 
+            self._strategy.get_state() != StreamState.ERROR
+        )
+    
+    @property
+    def is_listening(self) -> bool:
+        """Check if engine is actively listening"""
+        return self._is_listening and self.is_connected
+    
+    def _ensure_connected(self):
+        """Ensure engine is connected before operations"""
+        if not self.is_connected:
+            raise EngineError("Not connected. Call connect() first.")
+    
+    # ============== Core Methods ==============
     
     def _create_strategy(self):
         """Create appropriate strategy implementation"""
@@ -219,40 +243,59 @@ class VoiceEngine:
             )
             # self._strategy = BigLaneStrategy(logger=self.logger)
     
-    async def connect(self) -> None:
+    async def connect(self, retry_count: int = 3) -> None:
         """
-        Connect to the voice API provider.
+        Connect to the voice API provider with retry logic.
         
         Establishes WebSocket connection and initializes session.
+        
+        Args:
+            retry_count: Number of connection attempts
         """
         if self._is_connected:
             self.logger.warning("Already connected")
             return
         
-        try:
-            # Initialize strategy
+        last_error = None
+        
+        for attempt in range(retry_count):
+            try:
+                if attempt > 0:
+                    self.logger.info(f"Retry attempt {attempt + 1}/{retry_count}")
+                    await asyncio.sleep(1.0 * attempt)  # Exponential backoff
+                
+                await self._do_connect()
+                return
+                
+            except Exception as e:
+                last_error = e
+                self.logger.warning(f"Connection attempt {attempt + 1} failed: {e}")
+        
+        error = EngineError(f"Failed to connect after {retry_count} attempts")
+        if self.on_error:
+            self.on_error(error)
+        raise error from last_error
+    
+    async def _do_connect(self) -> None:
+        """Internal connection logic"""
+        # Initialize strategy only if not already initialized
+        if not self._strategy._is_initialized:
             await self._strategy.initialize(self.config.to_engine_config())
-            
-            # Setup audio components for fast lane
-            if self.mode == "fast":
-                await self._setup_fast_lane_audio()
-            
-            # Connect to provider
-            await self._strategy.connect()
-            
-            # Setup event handlers
-            self._setup_event_handlers()
-            
-            self._is_connected = True
-            self._session_start_time = asyncio.get_event_loop().time()
-            
-            self.logger.info("Successfully connected to voice API")
-            
-        except Exception as e:
-            self.logger.error(f"Connection failed: {e}")
-            if self.on_error:
-                self.on_error(e)
-            raise
+        
+        # Setup audio components for fast lane
+        if self.mode == "fast":
+            await self._setup_fast_lane_audio()
+        
+        # Connect to provider
+        await self._strategy.connect()
+        
+        # Setup event handlers
+        self._setup_event_handlers()
+        
+        self._is_connected = True
+        self._session_start_time = asyncio.get_event_loop().time()
+        
+        self.logger.info("Successfully connected to voice API")
     
     async def disconnect(self) -> None:
         """Disconnect from voice API and cleanup resources"""
@@ -272,21 +315,26 @@ class VoiceEngine:
                 self.audio_player.stop_playback()
             
             self._is_connected = False
+            
+            # Reset strategy initialization state for potential reconnection
+            if hasattr(self._strategy, '_is_initialized'):
+                self._strategy._is_initialized = False
+            
             self.logger.info("Disconnected from voice API")
             
         except Exception as e:
             self.logger.error(f"Disconnect error: {e}")
             if self.on_error:
                 self.on_error(e)
-    
+
+
     async def start_listening(self) -> None:
         """
         Start listening for audio input.
         
         Begins audio capture and processing.
         """
-        if not self._is_connected:
-            raise EngineError("Not connected")
+        self._ensure_connected()
         
         if self._is_listening:
             self.logger.warning("Already listening")
@@ -330,9 +378,7 @@ class VoiceEngine:
         Args:
             audio_data: Raw audio bytes in configured format
         """
-        if not self._is_connected:
-            raise EngineError("Not connected")
-        
+        self._ensure_connected()
         await self._strategy.send_audio(audio_data)
     
     async def send_text(self, text: str) -> None:
@@ -342,17 +388,13 @@ class VoiceEngine:
         Args:
             text: Text message to send
         """
-        if not self._is_connected:
-            raise EngineError("Not connected")
-        
+        self._ensure_connected()
         await self._strategy.send_text(text)
         self.logger.debug(f"Sent text: {text}")
     
     async def interrupt(self) -> None:
         """Interrupt the current AI response"""
-        if not self._is_connected:
-            raise EngineError("Not connected")
-        
+        self._ensure_connected()
         await self._strategy.interrupt()
         self.logger.debug("Interrupted current response")
     
@@ -391,6 +433,54 @@ class VoiceEngine:
             return await self._strategy.estimate_cost()
         return Cost()
     
+    # ============== Advanced Event Stream API ==============
+    
+    async def event_stream(self) -> AsyncIterator[StreamEvent]:
+        """
+        Stream all events for advanced users.
+        
+        Yields:
+            StreamEvent objects as they occur
+            
+        Example:
+            ```python
+            async for event in engine.event_stream():
+                if event.type == StreamEventType.AUDIO_OUTPUT_CHUNK:
+                    # Process audio chunk
+                    pass
+            ```
+        """
+        self._ensure_connected()
+        
+        event_queue: asyncio.Queue[StreamEvent] = asyncio.Queue()
+        
+        def queue_event(event: StreamEvent):
+            try:
+                event_queue.put_nowait(event)
+            except asyncio.QueueFull:
+                self.logger.warning("Event queue full, dropping event")
+        
+        # Subscribe to all events
+        # Note: This assumes strategy has a universal handler method
+        if hasattr(self._strategy, 'set_universal_handler'):
+            self._strategy.set_universal_handler(queue_event)
+        else:
+            # Fallback: subscribe to known events
+            for event_type in StreamEventType:
+                self._strategy.set_event_handler(event_type, queue_event)
+        
+        try:
+            while self.is_connected:
+                try:
+                    event = await asyncio.wait_for(event_queue.get(), timeout=1.0)
+                    yield event
+                except asyncio.TimeoutError:
+                    continue
+        finally:
+            # Cleanup handlers
+            if hasattr(self._strategy, 'clear_universal_handler'):
+                self._strategy.clear_universal_handler()
+    
     # ============== Easy API Methods ==============
     
     async def transcribe_audio_file(self, file_path: Union[str, Path]) -> str:
@@ -408,46 +498,63 @@ class VoiceEngine:
             raise EngineError("File transcription requires big lane mode")
         raise NotImplementedError("File transcription not yet implemented")
     
-    async def speak(self, text: str) -> AudioBytes:
+    async def speak(self, text: str, timeout: float = 30.0) -> AudioBytes:
         """
         Convert text to speech (convenience method).
         
         Args:
             text: Text to speak
+            timeout: Maximum time to wait for response
             
         Returns:
             Audio data
         """
-        if not self._is_connected:
-            await self.connect()
+        self._ensure_connected()
         
-        # Send text and collect audio response
-        audio_chunks = []
+        audio_future: asyncio.Future[bytes] = asyncio.Future()
+        audio_chunks: List[bytes] = []
         
-        def collect_audio(event: StreamEvent):
-            if event.data and "audio" in event.data:
-                audio_chunks.append(event.data["audio"])
+        def collect_audio(audio: AudioBytes):
+            audio_chunks.append(audio)
         
-        # Temporarily set handler
-        old_handler = self.on_audio_response
-        self._strategy.set_event_handler(
-            StreamEventType.AUDIO_OUTPUT_CHUNK,
-            collect_audio
-        )
+        def on_response_done():
+            if audio_chunks:
+                audio_future.set_result(b"".join(audio_chunks))
+            else:
+                audio_future.set_exception(EngineError("No audio received"))
+        
+        # Set temporary handlers
+        old_audio_handler = self.on_audio_response
+        old_done_handler = self.on_response_done
         
         try:
+            self.on_audio_response = collect_audio
+            self.on_response_done = on_response_done
+            
+            # Set internal handlers
+            self._setup_event_handlers()
+            
+            # Send text
             await self.send_text(text)
+
+            try:
+                return await asyncio.wait_for(audio_future, timeout=timeout)
+            except asyncio.TimeoutError:
+                raise EngineError(f"Response timeout after {timeout} seconds")
+                
             
-            # Wait for response (with timeout)
-            await asyncio.sleep(5.0)  # Simple approach - could be improved
-            
-            # Combine chunks
-            return b"".join(audio_chunks)
             
         finally:
-            # Restore handler
-            if old_handler:
-                self.on_audio_response = old_handler
+            # Restore handlers
+            self.on_audio_response = old_audio_handler
+            self.on_response_done = old_done_handler
+            self._setup_event_handlers()
+
+
+    def _handle_response_done(self):
+        """Handle response done without event parameter"""
+        if self.on_response_done:
+            self.on_response_done()
     
     # ============== Private Methods ==============
     
@@ -488,46 +595,65 @@ class VoiceEngine:
         )
     
     def _setup_event_handlers(self):
-        """Setup internal event handlers"""
-        # Audio output handler
-        def handle_audio_output(event: StreamEvent):
-            if self.on_audio_response and event.data:
-                audio_data = event.data.get("audio")
-                if audio_data:
-                    self.on_audio_response(audio_data)
-                    
-                    # Auto-play if player is available
-                    if self.audio_player:
-                        self.audio_player.play_audio(audio_data)
+        """Setup event handlers using mapping"""
+        event_mapping = {
+            StreamEventType.AUDIO_OUTPUT_CHUNK: self._handle_audio_output,
+            StreamEventType.TEXT_OUTPUT_CHUNK: self._handle_text_output,
+            StreamEventType.STREAM_ERROR: self._handle_error,
+            StreamEventType.STREAM_ENDED: self._handle_stream_ended,
+        }
         
-        self._strategy.set_event_handler(
-            StreamEventType.AUDIO_OUTPUT_CHUNK,
-            handle_audio_output
-        )
+        # Add function call handler if it exists
+        if hasattr(StreamEventType, 'FUNCTION_CALL'):
+            event_mapping[StreamEventType.FUNCTION_CALL] = self._handle_function_call
+
+        for event_type, handler in event_mapping.items():
+            self._strategy.set_event_handler(event_type, handler)
+
+
+        if hasattr(self._strategy, 'stream_manager') and self._strategy.stream_manager:
+            if hasattr(self._strategy.stream_manager, 'set_response_done_callback'):
+                self._strategy.stream_manager.set_response_done_callback(self._handle_response_done)
+                
         
-        # Text output handler
-        def handle_text_output(event: StreamEvent):
-            if self.on_text_response and event.data:
-                text = event.data.get("text")
-                if text:
-                    self.on_text_response(text)
-        
-        self._strategy.set_event_handler(
-            StreamEventType.TEXT_OUTPUT_CHUNK,
-            handle_text_output
-        )
-        
-        # Error handler
-        def handle_error(event: StreamEvent):
-            if self.on_error and event.data:
-                error = event.data.get("error")
-                if error:
-                    self.on_error(Exception(error))
-        
-        self._strategy.set_event_handler(
-            StreamEventType.STREAM_ERROR,
-            handle_error
-        )
+    
+    def _handle_audio_output(self, event: StreamEvent):
+        """Handle audio output events"""
+        if self.on_audio_response and event.data:
+            audio_data = event.data.get("audio")
+            if audio_data:
+                self.on_audio_response(audio_data)
+                
+                # Auto-play if player is available
+                if self.audio_player:
+                    self.audio_player.play_audio(audio_data)
+    
+    def _handle_text_output(self, event: StreamEvent):
+        """Handle text output events"""
+        if self.on_text_response and event.data:
+            text = event.data.get("text")
+            if text:
+                self.on_text_response(text)
+    
+    def _handle_error(self, event: StreamEvent):
+        """Handle error events"""
+        if self.on_error and event.data:
+            error_msg = event.data.get("error", "Unknown error")
+            error = EngineError(str(error_msg))
+            self.on_error(error)
+    
+    def _handle_function_call(self, event: StreamEvent):
+        """Handle function call events"""
+        if self.on_function_call and event.data:
+            function_data = event.data.get("function")
+            if function_data:
+                # Call the handler and potentially get a result
+                result = self.on_function_call(function_data)
+                # TODO: Send function result back to API
+    
+    def _handle_stream_ended(self, event: StreamEvent):
+        """Handle stream ended events"""
+        self._handle_response_done()
     
     async def _audio_processing_loop(self):
         """Process audio input for fast lane with VAD"""

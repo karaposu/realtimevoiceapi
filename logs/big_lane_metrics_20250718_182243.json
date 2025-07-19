@@ -1,0 +1,139 @@
+{
+  "summary": {
+    "audio_chunks_processed": 0,
+    "audio_chunks_filtered": 0,
+    "total_audio_mb": 0.0,
+    "pipeline_switches": 0,
+    "filter_rate": 0.0
+  },
+  "pipeline_metrics": {
+    "basic": {
+      "total_chunks": 0,
+      "total_bytes": 0,
+      "total_time_ms": 0.0,
+      "avg_time_per_chunk": 0,
+      "processors": {
+        "AudioValidator": {
+          "enabled": true,
+          "priority": 0,
+          "chunks": 0,
+          "time_ms": 0.0,
+          "avg_time": 0.0,
+          "errors": 0
+        }
+      }
+    },
+    "voice": {
+      "total_chunks": 0,
+      "total_bytes": 0,
+      "total_time_ms": 0.0,
+      "avg_time_per_chunk": 0,
+      "processors": {
+        "AudioValidator": {
+          "enabled": true,
+          "priority": 0,
+          "chunks": 0,
+          "time_ms": 0.0,
+          "avg_time": 0.0,
+          "errors": 0
+        },
+        "NoiseReducer": {
+          "enabled": true,
+          "priority": 10,
+          "chunks": 0,
+          "time_ms": 0.0,
+          "avg_time": 0.0,
+          "errors": 0
+        },
+        "VolumeNormalizer": {
+          "enabled": true,
+          "priority": 50,
+          "chunks": 0,
+          "time_ms": 0.0,
+          "avg_time": 0.0,
+          "errors": 0
+        },
+        "VADProcessor": {
+          "enabled": true,
+          "priority": 50,
+          "chunks": 0,
+          "time_ms": 0.0,
+          "avg_time": 0.0,
+          "errors": 0
+        }
+      }
+    },
+    "quality": {
+      "total_chunks": 0,
+      "total_bytes": 0,
+      "total_time_ms": 0.0,
+      "avg_time_per_chunk": 0,
+      "processors": {
+        "AudioValidator": {
+          "enabled": true,
+          "priority": 0,
+          "chunks": 0,
+          "time_ms": 0.0,
+          "avg_time": 0.0,
+          "errors": 0
+        },
+        "NoiseReducer": {
+          "enabled": true,
+          "priority": 10,
+          "chunks": 0,
+          "time_ms": 0.0,
+          "avg_time": 0.0,
+          "errors": 0
+        },
+        "EchoCanceller": {
+          "enabled": true,
+          "priority": 10,
+          "chunks": 0,
+          "time_ms": 0.0,
+          "avg_time": 0.0,
+          "errors": 0
+        },
+        "VolumeNormalizer": {
+          "enabled": true,
+          "priority": 50,
+          "chunks": 0,
+          "time_ms": 0.0,
+          "avg_time": 0.0,
+          "errors": 0
+        },
+        "VADProcessor": {
+          "enabled": true,
+          "priority": 50,
+          "chunks": 0,
+          "time_ms": 0.0,
+          "avg_time": 0.0,
+          "errors": 0
+        }
+      }
+    },
+    "realtime": {
+      "total_chunks": 0,
+      "total_bytes": 0,
+      "total_time_ms": 0.0,
+      "avg_time_per_chunk": 0,
+      "processors": {
+        "AudioValidator": {
+          "enabled": true,
+          "priority": 0,
+          "chunks": 0,
+          "time_ms": 0.0,
+          "avg_time": 0.0,
+          "errors": 0
+        },
+        "VolumeNormalizer": {
+          "enabled": true,
+          "priority": 50,
+          "chunks": 0,
+          "time_ms": 0.0,
+          "avg_time": 0.0,
+          "errors": 0
+        }
+      }
+    }
+  }
+}
