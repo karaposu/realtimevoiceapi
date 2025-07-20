@@ -11,7 +11,7 @@ Enhanced version with detailed logging to debug issues:
 
 Logs are saved to: fast_lane_test_TIMESTAMP.log
 
-python -m realtimevoiceapi.smoke_tests.test_04_z5_fast_lane_interactive_test_with_logs
+python -m realtimevoiceapi.smoke_tests.test_07_fastlane_units_interactive_and_logs
 """
 
 import sys
@@ -96,9 +96,8 @@ try:
 except ImportError:
     logger.error("sounddevice not found!")
 
-
 class LoggingAudioOutputBuffer:
-    """Audio buffer with detailed logging and proper interruption support"""
+    """Audio buffer with proper completion tracking"""
     
     def __init__(self, sample_rate=24000, channels=1):
         self.logger = logging.getLogger(f"{__name__}.AudioBuffer")
@@ -106,14 +105,24 @@ class LoggingAudioOutputBuffer:
         self.channels = channels
         self.buffer = []
         self.is_playing = False
+        self.is_complete = False  # NEW: Track if all audio received
         self.play_thread = None
         self.stop_flag = threading.Event()
         self.chunks_received = 0
         self.chunks_played = 0
         self.total_bytes = 0
         
-        self.logger.info(f"AudioBuffer initialized: {sample_rate}Hz, {channels}ch")
+        # NEW: Track current playback
+        self.currently_playing = False
+        self.playback_done_event = threading.Event()
         
+        self.logger.info(f"AudioBuffer initialized: {sample_rate}Hz, {channels}ch")
+    
+    def mark_complete(self):
+        """Mark that all audio has been received"""
+        self.is_complete = True
+        self.logger.debug("Audio reception complete")
+    
     def add_chunk(self, audio_chunk: bytes):
         """Add audio chunk to buffer"""
         chunk_size = len(audio_chunk)
@@ -142,7 +151,9 @@ class LoggingAudioOutputBuffer:
             return
             
         self.is_playing = True
+        self.is_complete = False  # Reset completion flag
         self.stop_flag.clear()
+        self.playback_done_event.clear()
         self.play_thread = threading.Thread(target=self._playback_loop, name="AudioPlayback")
         self.play_thread.daemon = True
         self.play_thread.start()
@@ -153,15 +164,21 @@ class LoggingAudioOutputBuffer:
         self.logger.debug("Playback loop started")
         try:
             while self.is_playing and not self.stop_flag.is_set():
-                # Check stop flag more frequently
                 if self.stop_flag.is_set():
                     self.logger.info("Playback stopped by flag")
                     break
-                    
-                if len(self.buffer) > 2:  # Wait for a few chunks to buffer
-                    # Combine several chunks
+                
+                # Wait for enough chunks to buffer (but not too long)
+                if len(self.buffer) > 2 or (self.is_complete and self.buffer):
                     chunks_to_play = []
-                    for _ in range(min(5, len(self.buffer))):
+                    
+                    # Get chunks to play
+                    chunks_available = min(5, len(self.buffer))
+                    if self.is_complete and self.buffer:
+                        # If complete, play all remaining
+                        chunks_available = len(self.buffer)
+                    
+                    for _ in range(chunks_available):
                         if self.buffer and not self.stop_flag.is_set():
                             chunks_to_play.append(self.buffer.pop(0))
                     
@@ -173,51 +190,67 @@ class LoggingAudioOutputBuffer:
                         audio_array = np.frombuffer(combined_audio, dtype=np.int16)
                         
                         try:
-                            # Play with blocking but check stop flag
                             if not self.stop_flag.is_set():
+                                self.currently_playing = True
                                 start_time = time.time()
                                 sd.play(audio_array, self.sample_rate, blocking=True)
+                                sd.wait()  # Ensure playback completes
                                 play_duration = time.time() - start_time
+                                self.currently_playing = False
                                 
                                 self.chunks_played += len(chunks_to_play)
                                 self.logger.debug(f"Played in {play_duration:.3f}s")
-                            else:
-                                self.logger.info("Playback interrupted")
-                                break
                         except Exception as e:
                             self.logger.error(f"Playback error: {e}", exc_info=True)
+                            self.currently_playing = False
                 else:
-                    if self.stop_flag.is_set():
-                        break
-                    time.sleep(0.05)  # Wait for more chunks
-                    
-                # Check if we're done
-                if not self.buffer and self.is_playing and not self.stop_flag.is_set():
-                    self.logger.debug("Buffer empty, waiting for more chunks...")
-                    time.sleep(0.5)  # Wait a bit for more chunks
-                    if not self.buffer:  # Still empty, we're done
-                        self.logger.info("Playback complete")
+                    # No chunks to play
+                    if self.is_complete and not self.buffer and not self.currently_playing:
+                        # All done!
+                        self.logger.info("All audio played successfully")
                         self.is_playing = False
+                        break
+                    else:
+                        # Wait for more chunks
+                        time.sleep(0.05)
+                        
         except Exception as e:
             self.logger.error(f"Playback thread error: {e}", exc_info=True)
-            self.is_playing = False
         finally:
+            self.is_playing = False
+            self.currently_playing = False
+            self.playback_done_event.set()
             self.logger.info(f"Playback ended: played {self.chunks_played}/{self.chunks_received} chunks")
     
-    def stop(self):
-        """Stop playback immediately"""
-        self.logger.info("Stopping playback - clearing buffer")
+    def wait_for_completion(self, timeout=5.0):
+        """Wait for all audio to finish playing"""
+        if self.play_thread and self.play_thread.is_alive():
+            return self.playback_done_event.wait(timeout)
+        return True
+    
+    def stop(self, force=False):
+        """Stop playback - optionally wait for current chunk to finish"""
+        self.logger.info(f"Stopping playback (force={force})")
+        
+        if not force and self.currently_playing:
+            # Let current chunk finish
+            self.logger.debug("Waiting for current chunk to finish...")
+            timeout = 0.5
+            start = time.time()
+            while self.currently_playing and (time.time() - start) < timeout:
+                time.sleep(0.01)
+        
         self.is_playing = False
         self.stop_flag.set()
         
         # Stop any ongoing playback
         try:
-            sd.stop()  # Stop sounddevice playback
+            sd.stop()
             self.logger.debug("Stopped sounddevice playback")
         except Exception as e:
             self.logger.debug(f"Error stopping sounddevice: {e}")
         
-        # Clear the buffer immediately
+        # Clear the buffer
         buffer_size = len(self.buffer)
         self.buffer.clear()
         self.logger.info(f"Cleared {buffer_size} chunks from buffer")
@@ -226,6 +259,8 @@ class LoggingAudioOutputBuffer:
             self.play_thread.join(timeout=1.0)
             if self.play_thread.is_alive():
                 self.logger.warning("Playback thread did not stop cleanly")
+
+
 
 
 class LoggingWebSocketConnection(WebSocketConnection):
@@ -839,6 +874,12 @@ class DebugInteractiveVoiceChat:
     
     def _on_response_done(self):
         """Handle response completion"""
+        # Mark audio buffer as complete so it knows to play all remaining chunks
+        self.audio_buffer.mark_complete()
+        
+        # Mark response as done
+        self.response_done = True
+        
         self.timings["response_end"] = time.time()
         
         # Calculate metrics

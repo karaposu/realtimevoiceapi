@@ -13,7 +13,7 @@ Requirements:
 - test_voice.wav file in realtimevoiceapi/
 - sounddevice installed
 
-python -m realtimevoiceapi.smoke_tests.test_04_fast_lane_units
+python -m realtimevoiceapi.smoke_tests.test_04_fastlane_units
 """
 
 import sys
@@ -529,7 +529,7 @@ def main():
         print("  - Real audio processing")
         print("  - Real VAD detection")
         print("  - Full integration working")
-        print("\nNext: Run test_05_big_lane_units.py")
+    
     else:
         print(f"\n❌ {total - passed} fast lane component(s) need attention.")
     

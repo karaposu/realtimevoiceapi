@@ -3,6 +3,8 @@ You're absolutely correct! Server-side VAD (including semantic VAD) is actually 
 
 
 Real-time Streaming is Better with Callbacks
+# In AudioManagerConfig
+echo_cancellation: bool = True
 
 ## The Core Challenge - Client vs Server VAD
 

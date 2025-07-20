@@ -1,5 +1,5 @@
 """
-Base Voice Engine Implementation
+Base Voice Engine Implementation with Component and Event Handler Organization
 
 Contains all the internal implementation details for the voice engine.
 This is not meant to be used directly by users - they should use VoiceEngine instead.
@@ -9,7 +9,7 @@ import asyncio
 import logging
 import time
 from typing import Optional, Dict, Any, Callable, List, Literal
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .core.stream_protocol import StreamEvent, StreamEventType, StreamState
 from .core.audio_types import AudioBytes, AudioConfig, VADConfig, VADType
@@ -17,6 +17,177 @@ from .core.exceptions import EngineError
 from .strategies.base_strategy import BaseStrategy, EngineConfig
 from .strategies.fast_lane_strategy import FastLaneStrategy
 from .audio.audio_manager import AudioManager, AudioManagerConfig
+from .audio.buffered_audio_player import BufferedAudioPlayer
+
+
+@dataclass
+class CoreEngineState:
+    """Core engine state tracking"""
+    
+    # Connection state
+    is_connected: bool = False
+    connection_time: Optional[float] = None
+    
+    # Audio input state
+    is_listening: bool = False
+    listening_start_time: Optional[float] = None
+    
+    # Audio output state
+    response_audio_started: bool = False
+    response_audio_complete: bool = False
+    
+    # Session info
+    session_start_time: Optional[float] = None
+    stream_state: StreamState = StreamState.IDLE
+    
+    # Metrics
+    total_interactions: int = 0
+    total_audio_chunks_sent: int = 0
+    total_audio_chunks_received: int = 0
+    
+    @property
+    def is_ai_speaking(self) -> bool:
+        """Check if AI is currently speaking"""
+        return self.response_audio_started and not self.response_audio_complete
+    
+    @property
+    def uptime(self) -> float:
+        """Get session uptime in seconds"""
+        if self.session_start_time:
+            return time.time() - self.session_start_time
+        return 0.0
+    
+    @property
+    def is_ready(self) -> bool:
+        """Check if ready for new interactions"""
+        return (
+            self.is_connected and 
+            self.stream_state == StreamState.ACTIVE and
+            not self.is_ai_speaking
+        )
+    
+    def reset_response_state(self):
+        """Reset response-related state"""
+        self.response_audio_started = False
+        self.response_audio_complete = False
+    
+    def mark_interaction(self):
+        """Mark a new interaction"""
+        self.total_interactions += 1
+        self.reset_response_state()
+    
+    def to_dict(self) -> dict:
+        """Convert state to dictionary for metrics"""
+        return {
+            "is_connected": self.is_connected,
+            "is_listening": self.is_listening,
+            "is_ai_speaking": self.is_ai_speaking,
+            "is_ready": self.is_ready,
+            "stream_state": self.stream_state.value,
+            "uptime": self.uptime,
+            "total_interactions": self.total_interactions,
+            "audio_chunks_sent": self.total_audio_chunks_sent,
+            "audio_chunks_received": self.total_audio_chunks_received
+        }
+
+
+@dataclass
+class EngineComponents:
+    """Container for all engine components"""
+    strategy: Optional[BaseStrategy] = None
+    audio_manager: Optional[AudioManager] = None
+    buffered_player: Optional[BufferedAudioPlayer] = None
+    
+    # Processing tasks
+    audio_processing_task: Optional[asyncio.Task] = None
+    
+    def cleanup_tasks(self):
+        """Cancel all tasks"""
+        if self.audio_processing_task and not self.audio_processing_task.done():
+            self.audio_processing_task.cancel()
+    
+    def has_audio(self) -> bool:
+        """Check if audio components are available"""
+        return self.audio_manager is not None and self.buffered_player is not None
+    
+    def clear(self):
+        """Clear all component references"""
+        self.strategy = None
+        self.audio_manager = None
+        self.buffered_player = None
+        self.audio_processing_task = None
+
+
+@dataclass
+class EventHandlerRegistry:
+    """Manages event handlers with wrapping and state tracking"""
+    
+    # Handler storage
+    user_handlers: Dict[StreamEventType, Callable] = field(default_factory=dict)
+    wrapped_handlers: Dict[StreamEventType, Callable] = field(default_factory=dict)
+    
+    # Handler call counts for metrics
+    handler_calls: Dict[StreamEventType, int] = field(default_factory=dict)
+    handler_errors: Dict[StreamEventType, int] = field(default_factory=dict)
+    
+    # Logger reference
+    logger: Optional[logging.Logger] = None
+    
+    def register_handler(self, event_type: StreamEventType, handler: Callable):
+        """Register a user handler"""
+        self.user_handlers[event_type] = handler
+        self.handler_calls[event_type] = 0
+        self.handler_errors[event_type] = 0
+    
+    def wrap_handler(self, event_type: StreamEventType, wrapper: Callable) -> Callable:
+        """Wrap a handler with additional functionality"""
+        original = self.user_handlers.get(event_type)
+        if not original:
+            return wrapper
+        
+        def wrapped_handler(event: StreamEvent):
+            # Track calls
+            self.handler_calls[event_type] = self.handler_calls.get(event_type, 0) + 1
+            
+            try:
+                # Call wrapper with original
+                return wrapper(original, event)
+            except Exception as e:
+                self.handler_errors[event_type] = self.handler_errors.get(event_type, 0) + 1
+                if self.logger:
+                    self.logger.error(f"Handler error for {event_type}: {e}")
+                raise
+        
+        self.wrapped_handlers[event_type] = wrapped_handler
+        return wrapped_handler
+    
+    def get_handler(self, event_type: StreamEventType) -> Optional[Callable]:
+        """Get wrapped handler if available, otherwise user handler"""
+        return self.wrapped_handlers.get(event_type) or self.user_handlers.get(event_type)
+    
+    def get_all_handlers(self) -> Dict[StreamEventType, Callable]:
+        """Get all active handlers (wrapped or user)"""
+        handlers = {}
+        for event_type in set(self.user_handlers.keys()) | set(self.wrapped_handlers.keys()):
+            handler = self.get_handler(event_type)
+            if handler:
+                handlers[event_type] = handler
+        return handlers
+    
+    def get_metrics(self) -> Dict[str, Any]:
+        """Get handler metrics"""
+        return {
+            "registered_handlers": len(self.user_handlers),
+            "handler_calls": dict(self.handler_calls),
+            "handler_errors": dict(self.handler_errors)
+        }
+    
+    def clear(self):
+        """Clear all handlers"""
+        self.user_handlers.clear()
+        self.wrapped_handlers.clear()
+        self.handler_calls.clear()
+        self.handler_errors.clear()
 
 
 class BaseEngine:
@@ -31,22 +202,14 @@ class BaseEngine:
         """Initialize base engine"""
         self.logger = logger or logging.getLogger(__name__)
         
-        # Strategy
-        self._strategy: Optional[BaseStrategy] = None
+        # Core state
+        self.state = CoreEngineState()
         
-        # Audio manager (replaces individual components)
-        self._audio_manager: Optional[AudioManager] = None
+        # Components
+        self.components = EngineComponents()
         
-        # State
-        self._is_connected = False
-        self._is_listening = False
-        self._audio_processing_task: Optional[asyncio.Task] = None
-        
-        # Metrics
-        self._session_start_time: Optional[float] = None
-        
-        # Event handlers storage
-        self._event_handlers: Dict[StreamEventType, Callable] = {}
+        # Event handler registry
+        self.event_registry = EventHandlerRegistry(logger=self.logger)
         
         # Configuration cache
         self._config: Optional[EngineConfig] = None
@@ -57,27 +220,30 @@ class BaseEngine:
     @property
     def is_connected(self) -> bool:
         """Check if properly connected"""
-        return (
-            self._is_connected and 
-            self._strategy is not None and 
-            self._strategy.get_state() != StreamState.ERROR
-        )
+        return self.state.is_connected and self.components.strategy is not None
     
     @property
     def is_listening(self) -> bool:
         """Check if actively listening"""
-        return self._is_listening and self.is_connected
+        return self.state.is_listening
+    
+    @property
+    def is_ai_speaking(self) -> bool:
+        """Check if AI is currently speaking"""
+        if self.components.buffered_player:
+            return self.components.buffered_player.is_actively_playing
+        return self.state.is_ai_speaking
     
     @property
     def strategy(self) -> Optional[BaseStrategy]:
         """Get current strategy"""
-        return self._strategy
+        return self.components.strategy
     
     def get_state(self) -> StreamState:
         """Get current stream state"""
-        if self._strategy:
-            return self._strategy.get_state()
-        return StreamState.IDLE
+        if self.components.strategy:
+            self.state.stream_state = self.components.strategy.get_state()
+        return self.state.stream_state
     
     # ============== Initialization ==============
     
@@ -98,17 +264,17 @@ class BaseEngine:
         self._mode = mode
         
         if mode == "fast":
-            self._strategy = FastLaneStrategy(logger=self.logger)
+            self.components.strategy = FastLaneStrategy(logger=self.logger)
         elif mode == "big":
             # TODO: Implement big lane strategy
             raise NotImplementedError(
                 "Big lane strategy not yet implemented. Please use mode='fast' for now."
             )
-            # self._strategy = BigLaneStrategy(logger=self.logger)
+            # self.components.strategy = BigLaneStrategy(logger=self.logger)
         else:
             raise ValueError(f"Invalid mode: {mode}. Must be 'fast' or 'big'")
         
-        return self._strategy
+        return self.components.strategy
     
     async def initialize_strategy(self, config: EngineConfig) -> None:
         """
@@ -117,14 +283,14 @@ class BaseEngine:
         Args:
             config: Engine configuration
         """
-        if not self._strategy:
+        if not self.components.strategy:
             raise EngineError("Strategy not created. Call create_strategy first.")
         
         self._config = config
         
         # Initialize strategy only if not already initialized
-        if not self._strategy._is_initialized:
-            await self._strategy.initialize(config)
+        if not self.components.strategy._is_initialized:
+            await self.components.strategy.initialize(config)
     
     async def setup_fast_lane_audio(
         self,
@@ -137,7 +303,7 @@ class BaseEngine:
         vad_speech_start_ms: int,
         vad_speech_end_ms: int
     ) -> None:
-        """Setup audio manager for fast lane"""
+        """Setup audio manager and buffered player for fast lane"""
         try:
             # Create VAD config if enabled
             vad_config = None
@@ -150,7 +316,7 @@ class BaseEngine:
                 )
             
             # Create audio manager config
-            audio_config = AudioManagerConfig(
+            audio_manager_config = AudioManagerConfig(
                 input_device=input_device,
                 output_device=output_device,
                 sample_rate=sample_rate,
@@ -160,13 +326,33 @@ class BaseEngine:
             )
             
             # Create and initialize audio manager
-            self._audio_manager = AudioManager(audio_config, logger=self.logger)
-            await self._audio_manager.initialize()
+            self.components.audio_manager = AudioManager(audio_manager_config, logger=self.logger)
+            await self.components.audio_manager.initialize()
+            
+            # Create buffered player
+            audio_config = AudioConfig(
+                sample_rate=sample_rate,
+                channels=1,
+                bit_depth=16,
+                chunk_duration_ms=chunk_duration_ms
+            )
+            
+            self.components.buffered_player = BufferedAudioPlayer(
+                config=audio_config,
+                logger=self.logger
+            )
+            
+            # Set callbacks
+            self.components.buffered_player.set_completion_callback(self._on_audio_playback_complete)
+            self.components.buffered_player.set_chunk_played_callback(self._on_chunks_played)
+            
+            self.logger.info("Audio components initialized with buffered playback")
             
         except Exception as e:
             # Clean up if initialization fails
             self.logger.error(f"Failed to setup audio: {e}")
-            self._audio_manager = None
+            self.components.audio_manager = None
+            self.components.buffered_player = None
             raise
     
     # ============== Connection Management ==============
@@ -177,25 +363,33 @@ class BaseEngine:
         
         Handles strategy connection and event handler setup.
         """
-        if not self._strategy:
+        if not self.components.strategy:
             raise EngineError("Strategy not initialized")
         
         # Connect to provider
-        await self._strategy.connect()
+        await self.components.strategy.connect()
         
-        self._is_connected = True
-        self._session_start_time = asyncio.get_event_loop().time()
+        # Update state
+        self.state.is_connected = True
+        self.state.connection_time = time.time()
+        self.state.session_start_time = self.state.session_start_time or time.time()
+        self.state.stream_state = StreamState.ACTIVE
         
         self.logger.info("Successfully connected to voice API")
     
     async def do_disconnect(self) -> None:
         """Internal disconnection logic"""
-        if not self._is_connected:
+        if not self.state.is_connected:
             return
         
         try:
             # Use the comprehensive cleanup
             await self.cleanup()
+            
+            # Update state
+            self.state.is_connected = False
+            self.state.stream_state = StreamState.ENDED
+            
             self.logger.info("Disconnected from voice API")
             
         except Exception as e:
@@ -206,81 +400,87 @@ class BaseEngine:
     
     async def start_audio_processing(self) -> None:
         """Start audio input processing"""
-        if self._is_listening:
+        if self.state.is_listening:
             self.logger.warning("Already listening")
             return
         
+        # Reset audio state
+        self.state.reset_response_state()
+        
         # Start audio input through strategy
-        await self._strategy.start_audio_input()
+        await self.components.strategy.start_audio_input()
+        
+        # Update state
+        self.state.is_listening = True
+        self.state.listening_start_time = time.time()
         
         # For fast lane with audio manager, start processing loop
-        if self._mode == "fast" and self._audio_manager:
-            self._audio_processing_task = asyncio.create_task(
+        if self._mode == "fast" and self.components.audio_manager:
+            self.components.audio_processing_task = asyncio.create_task(
                 self._audio_processing_loop()
             )
         
-        self._is_listening = True
         self.logger.info("Started listening for audio input")
     
     async def stop_audio_processing(self) -> None:
         """Stop audio input processing"""
-        if not self._is_listening:
+        if not self.state.is_listening:
             return
         
-        # Mark as not listening first
-        self._is_listening = False
+        # Update state first
+        self.state.is_listening = False
         
         # Stop audio processing task
-        if self._audio_processing_task:
-            self._audio_processing_task.cancel()
+        if self.components.audio_processing_task:
+            self.components.audio_processing_task.cancel()
             try:
-                await self._audio_processing_task
+                await self.components.audio_processing_task
             except asyncio.CancelledError:
                 pass
-            self._audio_processing_task = None
+            self.components.audio_processing_task = None
         
         # Stop audio capture through manager
-        if self._audio_manager:
-            await self._audio_manager.stop_capture()
+        if self.components.audio_manager:
+            await self.components.audio_manager.stop_capture()
         
         # Stop audio input through strategy
-        await self._strategy.stop_audio_input()
+        await self.components.strategy.stop_audio_input()
         
         self.logger.info("Stopped listening for audio input")
     
     async def _audio_processing_loop(self) -> None:
         """Process audio input for fast lane with VAD"""
-        if not self._audio_manager:
+        if not self.components.audio_manager:
             self.logger.error("No audio manager available")
             return
         
         # Get audio queue from manager
         try:
-            audio_queue = await self._audio_manager.start_capture()
+            audio_queue = await self.components.audio_manager.start_capture()
         except Exception as e:
             self.logger.error(f"Failed to start audio capture: {e}")
             return
         
         try:
-            while self._is_listening and self._is_connected:
+            while self.state.is_listening and self.state.is_connected:
                 try:
                     # Get audio chunk
                     audio_chunk = await asyncio.wait_for(audio_queue.get(), timeout=0.1)
                     
                     # Check if we should still process
-                    if not self._is_listening or not self._is_connected:
+                    if not self.state.is_listening or not self.state.is_connected:
                         break
                     
                     # Check strategy state
-                    if self._strategy and self._strategy.get_state() in [
+                    if self.components.strategy and self.components.strategy.get_state() in [
                         StreamState.ACTIVE, StreamState.STARTING
                     ]:
                         # Process through VAD
-                        vad_state = self._audio_manager.process_vad(audio_chunk)
+                        vad_state = self.components.audio_manager.process_vad(audio_chunk)
                         
                         # Send if speech or no VAD
                         if not vad_state or vad_state in ["speech_starting", "speech"]:
-                            await self._strategy.send_audio(audio_chunk)
+                            await self.components.strategy.send_audio(audio_chunk)
                     
                 except asyncio.TimeoutError:
                     continue
@@ -289,128 +489,192 @@ class BaseEngine:
                     break
                 except Exception as e:
                     # Only log error if we're still supposed to be running
-                    if self._is_listening and self._is_connected:
+                    if self.state.is_listening and self.state.is_connected:
                         self.logger.error(f"Audio processing error: {e}")
                         # Notify error handler if set
-                        if StreamEventType.STREAM_ERROR in self._event_handlers:
+                        error_handler = self.event_registry.get_handler(StreamEventType.STREAM_ERROR)
+                        if error_handler:
                             error_event = StreamEvent(
                                 type=StreamEventType.STREAM_ERROR,
                                 stream_id="unknown",
                                 timestamp=time.time(),
                                 data={"error": str(e)}
                             )
-                            self._event_handlers[StreamEventType.STREAM_ERROR](error_event)
+                            error_handler(error_event)
                         
         except Exception as e:
             self.logger.error(f"Fatal audio processing error: {e}")
         finally:
             # Stop capture through manager
-            if self._audio_manager:
-                await self._audio_manager.stop_capture()
+            if self.components.audio_manager:
+                await self.components.audio_manager.stop_capture()
     
     # ============== Event Management ==============
     
     def setup_event_handlers(self, handlers: Dict[StreamEventType, Callable]) -> None:
         """
-        Setup all event handlers at once.
+        Setup all event handlers at once with audio buffering integration.
         
         Args:
             handlers: Dictionary mapping event types to handler functions
         """
-        self._event_handlers = handlers
+        # Register all user handlers
+        for event_type, handler in handlers.items():
+            self.event_registry.register_handler(event_type, handler)
         
-        # Pass handlers to strategy
-        if self._strategy:
-            for event_type, handler in handlers.items():
-                self._strategy.set_event_handler(event_type, handler)
+        # Create wrapper for audio handler
+        if StreamEventType.AUDIO_OUTPUT_CHUNK in handlers:
+            def audio_wrapper(original_handler, event: StreamEvent):
+                # Update state
+                if not self.state.response_audio_started:
+                    self.state.response_audio_started = True
+                    self.logger.debug("Response audio started")
+                
+                self.state.total_audio_chunks_received += 1
+                
+                # Call original handler
+                original_handler(event)
+                
+                # Play through buffered player if available
+                if event.data and "audio" in event.data and self.components.buffered_player:
+                    self.components.buffered_player.play(event.data["audio"])
+            
+            self.event_registry.wrap_handler(StreamEventType.AUDIO_OUTPUT_CHUNK, audio_wrapper)
+        
+        # Create wrapper for stream ended handler
+        if StreamEventType.STREAM_ENDED in handlers:
+            def ended_wrapper(original_handler, event: StreamEvent):
+                # Mark audio complete for buffered player
+                if self.state.response_audio_started and self.components.buffered_player:
+                    self.components.buffered_player.mark_complete()
+                    self.state.response_audio_complete = True
+                    self.logger.debug("Marked audio complete for buffered player")
+                
+                # Call original
+                original_handler(event)
+            
+            self.event_registry.wrap_handler(StreamEventType.STREAM_ENDED, ended_wrapper)
+        
+        # Pass all handlers to strategy
+        if self.components.strategy:
+            all_handlers = self.event_registry.get_all_handlers()
+            for event_type, handler in all_handlers.items():
+                self.components.strategy.set_event_handler(event_type, handler)
         
         # Special handling for fast lane response done callback
         if (self._mode == "fast" and 
-            hasattr(self._strategy, 'stream_manager') and 
-            self._strategy.stream_manager):
+            hasattr(self.components.strategy, 'stream_manager') and 
+            self.components.strategy.stream_manager):
             
-            if hasattr(self._strategy.stream_manager, 'set_response_done_callback'):
+            if hasattr(self.components.strategy.stream_manager, 'set_response_done_callback'):
                 # Create wrapper for response done
                 def response_done_wrapper():
-                    if StreamEventType.STREAM_ENDED in self._event_handlers:
+                    # Mark audio complete
+                    if self.state.response_audio_started and self.components.buffered_player:
+                        self.components.buffered_player.mark_complete()
+                        self.state.response_audio_complete = True
+                    
+                    stream_ended_handler = self.event_registry.get_handler(StreamEventType.STREAM_ENDED)
+                    if stream_ended_handler:
                         # Create a synthetic event
                         event = StreamEvent(
                             type=StreamEventType.STREAM_ENDED,
-                            stream_id=self._strategy.stream_manager.stream_id,
+                            stream_id=self.components.strategy.stream_manager.stream_id,
                             timestamp=time.time(),
                             data={}
                         )
-                        self._event_handlers[StreamEventType.STREAM_ENDED](event)
+                        stream_ended_handler(event)
                 
-                self._strategy.stream_manager.set_response_done_callback(response_done_wrapper)
+                self.components.strategy.stream_manager.set_response_done_callback(response_done_wrapper)
     
     def set_event_handler(self, event_type: StreamEventType, handler: Callable) -> None:
         """Set a single event handler"""
-        self._event_handlers[event_type] = handler
+        self.event_registry.register_handler(event_type, handler)
         
-        if self._strategy:
-            self._strategy.set_event_handler(event_type, handler)
+        if self.components.strategy:
+            # Get the handler (might be wrapped)
+            active_handler = self.event_registry.get_handler(event_type)
+            if active_handler:
+                self.components.strategy.set_event_handler(event_type, active_handler)
     
     # ============== Data Transmission ==============
     
     async def send_audio(self, audio_data: AudioBytes) -> None:
         """Send audio data to the API"""
-        if not self._strategy:
+        if not self.components.strategy:
             raise EngineError("Not connected")
         
-        await self._strategy.send_audio(audio_data)
+        # Mark interaction and reset response state
+        self.state.mark_interaction()
+        
+        # Send audio
+        await self.components.strategy.send_audio(audio_data)
+        
+        # Update metrics
+        self.state.total_audio_chunks_sent += 1
     
     async def send_text(self, text: str) -> None:
         """Send text message to the API"""
-        if not self._strategy:
+        if not self.components.strategy:
             raise EngineError("Not connected")
         
-        await self._strategy.send_text(text)
+        # Mark interaction and reset response state
+        self.state.mark_interaction()
+        
+        await self.components.strategy.send_text(text)
         self.logger.debug(f"Sent text: {text}")
     
     async def interrupt(self) -> None:
         """Interrupt the current AI response"""
-        if not self._strategy:
+        if not self.components.strategy:
             raise EngineError("Not connected")
         
-        await self._strategy.interrupt()
+        # Stop buffered audio immediately
+        if self.components.buffered_player:
+            self.components.buffered_player.stop(force=True)
+            self.logger.debug("Force stopped buffered audio")
+        
+        # Reset audio state
+        self.state.reset_response_state()
+        
+        # Interrupt through strategy
+        await self.components.strategy.interrupt()
         self.logger.debug("Interrupted current response")
     
     # ============== Metrics and Usage ==============
     
     def get_metrics(self) -> Dict[str, Any]:
         """Get performance metrics"""
-        metrics = {
-            "connected": self._is_connected,
-            "listening": self._is_listening,
-            "uptime": (
-                asyncio.get_event_loop().time() - self._session_start_time
-                if self._session_start_time else 0
-            )
-        }
+        # Start with state metrics
+        metrics = self.state.to_dict()
         
-        # Strategy metrics
-        if self._strategy:
+        # Add event handler metrics
+        metrics["event_handlers"] = self.event_registry.get_metrics()
+        
+        # Add component metrics
+        if self.components.strategy:
             try:
-                strategy_metrics = self._strategy.get_metrics()
-                metrics.update(strategy_metrics)
+                strategy_metrics = self.components.strategy.get_metrics()
+                metrics["strategy"] = strategy_metrics
             except Exception as e:
                 self.logger.error(f"Error getting strategy metrics: {e}")
         
-        # Audio metrics
-        if self._audio_manager:
+        if self.components.audio_manager:
             try:
-                metrics["audio"] = self._audio_manager.get_metrics()
+                metrics["audio"] = self.components.audio_manager.get_metrics()
             except Exception as e:
                 self.logger.error(f"Error getting audio metrics: {e}")
                 metrics["audio"] = {"error": str(e)}
+        
+        if self.components.buffered_player:
+            metrics["buffered_audio"] = self.components.buffered_player.get_metrics()
         
         return metrics
     
     async def get_usage(self):
         """Get usage statistics"""
-        if self._strategy:
-            return self._strategy.get_usage()
+        if self.components.strategy:
+            return self.components.strategy.get_usage()
         
         # Return empty usage if no strategy
         from .core.provider_protocol import Usage
@@ -418,8 +682,8 @@ class BaseEngine:
     
     async def estimate_cost(self):
         """Estimate cost of current session"""
-        if self._strategy:
-            return await self._strategy.estimate_cost()
+        if self.components.strategy:
+            return await self.components.strategy.estimate_cost()
         
         # Return zero cost if no strategy
         from .core.provider_protocol import Cost
@@ -428,47 +692,114 @@ class BaseEngine:
     # ============== Audio Playback ==============
     
     def play_audio(self, audio_data: AudioBytes) -> None:
-        """Play audio through the audio manager"""
-        if self._audio_manager:
-            self._audio_manager.play_audio(audio_data)
+        """Play audio through the appropriate player"""
+        # If we're using buffered player for responses, it's already handled
+        if self.components.buffered_player and self.state.response_audio_started:
+            # Already being handled by buffered player
+            return
+        
+        # Otherwise use direct playback
+        if self.components.audio_manager:
+            self.components.audio_manager.play_audio(audio_data)
+    
+    def _on_audio_playback_complete(self):
+        """Called when buffered playback completes"""
+        self.logger.info("Audio playback fully complete")
+        
+        # Get final metrics
+        if self.components.buffered_player:
+            metrics = self.components.buffered_player.get_metrics()
+            self.logger.info(f"Final playback metrics: {metrics}")
+        
+        # Reset state
+        self.state.response_audio_started = False
+        self.state.response_audio_complete = False
+        
+        # Notify user's handler if exists
+        stream_ended_handler = self.event_registry.user_handlers.get(StreamEventType.STREAM_ENDED)
+        if stream_ended_handler:
+            # Create event
+            event = StreamEvent(
+                type=StreamEventType.STREAM_ENDED,
+                stream_id=self.components.strategy.stream_id if self.components.strategy else "unknown",
+                timestamp=time.time(),
+                data={
+                    "reason": "audio_playback_complete",
+                    "playback_metrics": self.components.buffered_player.get_metrics() if self.components.buffered_player else {}
+                }
+            )
+            
+            # Call in asyncio context
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(self._emit_event_async(event, stream_ended_handler))
+                else:
+                    # Fallback for thread context
+                    stream_ended_handler(event)
+            except Exception as e:
+                self.logger.error(f"Error emitting playback complete event: {e}")
+    
+    async def _emit_event_async(self, event: StreamEvent, handler: Callable):
+        """Emit event in async context"""
+        try:
+            if asyncio.iscoroutinefunction(handler):
+                await handler(event)
+            else:
+                handler(event)
+        except Exception as e:
+            self.logger.error(f"Event handler error: {e}")
+    
+    def _on_chunks_played(self, num_chunks: int):
+        """Track chunks being played"""
+        self.logger.debug(f"Played {num_chunks} audio chunks")
     
     # ============== Cleanup ==============
     
     async def cleanup(self) -> None:
         """Cleanup all resources safely"""
         try:
-            # Mark as not listening first
-            self._is_listening = False
+            # Update state
+            self.state.is_listening = False
+            self.state.is_connected = False
+            self.state.stream_state = StreamState.ENDED
             
-            # Cancel audio processing task
-            if self._audio_processing_task and not self._audio_processing_task.done():
-                self._audio_processing_task.cancel()
+            # Cancel all tasks through components
+            self.components.cleanup_tasks()
+            
+            # Wait for audio processing task if it exists
+            if self.components.audio_processing_task:
                 try:
-                    await asyncio.wait_for(self._audio_processing_task, timeout=1.0)
+                    await asyncio.wait_for(self.components.audio_processing_task, timeout=1.0)
                 except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
-                self._audio_processing_task = None
+            
+            # Stop buffered player
+            if self.components.buffered_player:
+                self.components.buffered_player.stop(force=True)
             
             # Cleanup audio manager
-            if self._audio_manager:
+            if self.components.audio_manager:
                 try:
-                    await self._audio_manager.cleanup()
+                    await self.components.audio_manager.cleanup()
                 except Exception as e:
                     self.logger.error(f"Audio manager cleanup error: {e}")
-                self._audio_manager = None
             
             # Disconnect strategy if connected
-            if self._is_connected and self._strategy:
+            if self.components.strategy:
                 try:
-                    await self._strategy.disconnect()
+                    await self.components.strategy.disconnect()
                 except Exception as e:
                     self.logger.error(f"Strategy disconnect error: {e}")
-                self._is_connected = False
             
-            # Clear references
-            self._strategy = None
-            self._event_handlers.clear()
-            self._session_start_time = None
+            # Clear all components
+            self.components.clear()
+            
+            # Clear event handlers
+            self.event_registry.clear()
+            
+            # Reset state
+            self.state.reset_response_state()
             
         except Exception as e:
             self.logger.error(f"Cleanup error: {e}")
