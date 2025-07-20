@@ -1,3 +1,6 @@
+# here is realtimevoiceapi/__init__.py
+
+
 """
 RealtimeVoiceAPI - Modern Python framework for OpenAI's Realtime API
 """

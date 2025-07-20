@@ -117,7 +117,7 @@ class VoxTermMenu:
     def _show_current_state(self):
         """Show current state/settings"""
         if self.current_state == MenuState.MAIN:
-            print(f"📋 Settings: {self.current_mode} mode, {self.current_voice} voice")
+            print(f"OpenAI, mode: {self.current_mode}, voice: {self.current_voice}")
             if not self.connected:
                 print("📡 Status: Not connected")
             print()

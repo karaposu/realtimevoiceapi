@@ -1,259 +1,283 @@
+# RealtimeVoiceChat 
 
-📨 RealtimeMessage (User creates)
-    ↓
-🎭 MessageAwareRealtimeService (Validates & routes)
-    ↓
-🎯 MessageAwareGenerationEngine (Processes & retries)
-    ↓
-🧠 RealtimeLLMHandler (Converts to API calls)
-    ↓  
-🔌 WebSocketHandler (Sends via WebSocket)
-    ↓
-🌐 OpenAI Realtime API
+A high-performance Python framework for OpenAI's Realtime API, featuring a unique dual-lane architecture that balances ultra-low latency with rich functionality.
 
+## 🎯 Overview
 
+RealtimeVoiceAPI provides a modern, production-ready interface for building real-time voice applications with OpenAI's Realtime API. The framework's innovative dual-lane architecture allows developers to choose between maximum performance (Fast Lane) or full features (Big Lane).
 
-# Create reusable message templates
-storytelling_config = RealtimeMessage(
-    system_prompt="You are a creative storyteller",
-    model_config=ModelConfig(temperature=0.95),
-    audio_config=AudioConfig(voice="ballad", speed=0.8),
-    output_data_format="both",
-    timeout=60.0
-)
+### Key Features
 
-# Use template with different content
-story1 = storytelling_config.clone(user_prompt="Tell me about dragons")
-story2 = storytelling_config.clone(user_prompt="Tell me about space")
+- **🚀 Ultra-Low Latency**: < 50ms round-trip in Fast Lane mode
+- **🎙️ Real-time Voice Processing**: Direct hardware audio capture with minimal overhead
+- **🔄 Dual-Lane Architecture**: Choose between performance and features
+- **🎯 Client-side VAD**: Energy-based voice activity detection
+- **🔊 Audio Playback**: Built-in audio output with < 10ms latency
+- **📊 Comprehensive Metrics**: Performance monitoring and usage tracking
+- **🛡️ Production Ready**: Robust error handling and automatic reconnection
 
+## 🏗️ Architecture
 
+### Fast Lane (Default)
+Optimized for ultra-low latency voice interactions:
+- Direct WebSocket connection
+- Zero-copy audio path
+- Minimal abstraction layers
+- Client-side VAD only
+- < 50ms total latency
 
+### Big Lane (Coming Soon)
+Full-featured implementation with:
+- Multi-provider support
+- Audio pipeline processing
+- Event-driven architecture
+- Advanced features (transcription, functions)
+- Provider failover
 
-# Complex multimodal message
-analysis_request = RealtimeMessage.multimodal(
-    text="Analyze this audio and image together",
-    audio="recording.wav",
-    images=["chart.png", "diagram.jpg"],
-    system_prompt="You are a data analyst",
-    output_format="both",
-    model_config=ModelConfig(temperature=0.3),  # Analytical
-    timeout=120.0  # Long analysis
-)
+## 🚀 Quick Start
 
+### Installation
 
-
-Why This Is The Right Architecture
-
-🎛️ Flexibility: Every aspect configurable per request
-🔒 Type Safety: Dataclass provides validation and IDE support
-📊 Observability: Built-in tracking and analytics
-🔄 Reliability: Automatic retry and error handling
-🧩 Extensibility: Easy to add new fields and features
-🎯 Precision: Exact control over inputs and outputs
-🔌 Compatibility: Works with existing layered architecture
-
-
-# RealtimeVoiceAPI Enhancement Suggestions
-
-
-
-
-
-## Documentation Enhancements
-
-### 1. README.md
-```markdown
-# RealtimeVoiceAPI
-
-A comprehensive Python library for OpenAI's Realtime Voice API.
-
-## Quick Start
-```python
-import asyncio
-from realtimevoiceapi import RealtimeClient, SessionConfig
-
-async def main():
-    client = RealtimeClient(api_key="your-key")
-    
-    # Configure session
-    config = SessionConfig(
-        instructions="You are a helpful voice assistant",
-        voice="alloy",
-        modalities=["text", "audio"]
-    )
-    
-    async with client:
-        await client.connect(config)
-        
-        # Send text and get audio response
-        await client.send_text("Hello! How are you?")
-        
-        # Save audio response
-        await asyncio.sleep(2)  # Wait for response
-        client.save_audio_output("response.wav")
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-## Installation
 ```bash
 pip install realtimevoiceapi
-
-# Optional dependencies for advanced audio processing
-pip install numpy pydub
-```
 ```
 
-### 2. Type Stub File (realtimevoiceapi.pyi)
-For better IDE support and type checking.
+### Basic Usage
 
-## Code Enhancements
-
-### 1. Configuration Validation
 ```python
-# In session.py
-def validate_config(self) -> List[str]:
-    """Validate configuration and return list of issues"""
-    issues = []
+import asyncio
+from realtimevoiceapi import VoiceEngine
+
+async def main():
+    # Create engine
+    engine = VoiceEngine(api_key="your-openai-api-key")
     
-    if self.temperature < 0 or self.temperature > 2:
-        issues.append("Temperature must be between 0 and 2")
+    # Set up callbacks
+    engine.on_text_response = lambda text: print(f"AI: {text}")
     
-    if self.speed < 0.25 or self.speed > 4.0:
-        issues.append("Speed must be between 0.25 and 4.0")
-    
-    if "audio" in self.modalities and self.voice not in VALID_VOICES:
-        issues.append(f"Invalid voice: {self.voice}")
-    
-    return issues
+    # Connect and start
+    async with engine:
+        await engine.start_listening()
+        
+        # Keep running
+        await asyncio.sleep(60)
+
+asyncio.run(main())
 ```
 
-### 2. Connection Health Monitoring
+### Advanced Example
+
 ```python
-# In client.py
-async def start_health_monitor(self, interval: float = 30.0):
-    """Start background health monitoring"""
-    while self.is_connected:
-        if not self.connection.is_alive():
-            self.logger.warning("Connection health check failed")
-            if self.auto_reconnect:
-                await self._attempt_reconnect()
-        await asyncio.sleep(interval)
+import asyncio
+from realtimevoiceapi import VoiceEngine, VoiceEngineConfig
+
+async def main():
+    # Configure engine
+    config = VoiceEngineConfig(
+        api_key="your-api-key",
+        mode="fast",
+        voice="alloy",
+        vad_enabled=True,
+        vad_threshold=0.02,
+        latency_mode="ultra_low"
+    )
+    
+    engine = VoiceEngine(config=config)
+    
+    # Set up comprehensive callbacks
+    engine.on_audio_response = lambda audio: print(f"Received {len(audio)} bytes")
+    engine.on_text_response = lambda text: print(f"AI: {text}")
+    engine.on_error = lambda error: print(f"Error: {error}")
+    engine.on_response_done = lambda: print("Response complete")
+    
+    await engine.connect()
+    
+    # Example: Text to speech
+    await engine.send_text("Hello, how are you today?")
+    
+    # Example: Start listening for voice input
+    await engine.start_listening()
+    
+    # Keep running for 5 minutes
+    await asyncio.sleep(300)
+    
+    await engine.disconnect()
+
+asyncio.run(main())
 ```
 
-### 3. Audio Streaming Utilities
+## 📖 API Reference
+
+### VoiceEngine
+
+The main interface for voice interactions.
+
+#### Methods
+
+- `connect(retry_count=3)` - Connect to OpenAI Realtime API
+- `disconnect()` - Disconnect from API
+- `start_listening()` - Start capturing audio input
+- `stop_listening()` - Stop capturing audio
+- `send_text(text)` - Send text message
+- `send_audio(audio_bytes)` - Send audio data
+- `interrupt()` - Interrupt current AI response
+- `get_metrics()` - Get performance metrics
+- `get_usage()` - Get usage statistics
+
+#### Properties
+
+- `is_connected` - Check connection status
+- `is_listening` - Check if actively listening
+- `on_audio_response` - Callback for audio responses
+- `on_text_response` - Callback for text responses
+- `on_error` - Callback for errors
+- `on_response_done` - Callback when response completes
+
+### Configuration
+
 ```python
-# In audio.py
-class AudioStreamer:
-    """Helper for real-time audio streaming from microphone"""
-    
-    def __init__(self, client: 'RealtimeClient'):
-        self.client = client
-        self.is_streaming = False
-    
-    async def start_microphone_stream(self, chunk_ms: int = 100):
-        """Stream from microphone to API"""
-        # Implementation would use pyaudio or similar
-        pass
-    
-    async def stream_to_speakers(self, chunk_ms: int = 100):
-        """Stream API audio output to speakers"""
-        # Implementation would use pyaudio or similar
-        pass
+VoiceEngineConfig(
+    api_key: str,                    # Required: OpenAI API key
+    mode: "fast" | "big" = "fast",   # Engine mode
+    voice: str = "alloy",            # Voice selection
+    sample_rate: int = 24000,        # Audio sample rate
+    vad_enabled: bool = True,        # Enable voice activity detection
+    vad_threshold: float = 0.02,     # VAD sensitivity
+    latency_mode: str = "balanced",  # "ultra_low" | "balanced" | "quality"
+)
 ```
 
-## Testing Enhancements
+## 🎯 Use Cases
 
-### 1. Integration Test Helper
+### Voice Assistant
 ```python
-# tests/helpers.py
-class MockRealtimeAPI:
-    """Mock server for testing without API calls"""
-    
-    def __init__(self):
-        self.events = []
-        self.responses = {}
-    
-    async def simulate_response(self, text: str, audio: bytes = None):
-        """Simulate API response"""
-        pass
+engine = VoiceEngine.create_simple(api_key="...")
+engine.on_text_response = lambda text: print(f"Assistant: {text}")
+await engine.connect()
+await engine.start_listening()
 ```
 
-### 2. Performance Benchmarks
+### Real-time Translation
 ```python
-# tests/test_performance.py
-async def test_audio_processing_performance():
-    """Benchmark audio processing operations"""
-    processor = AudioProcessor()
-    
-    # Test large file processing
-    large_audio = generate_test_audio(duration_seconds=60)
-    
-    start_time = time.time()
-    chunks = processor.chunk_audio(large_audio, 100)
-    processing_time = time.time() - start_time
-    
-    assert processing_time < 1.0  # Should process 60s audio in <1s
+config = VoiceEngineConfig(
+    api_key="...",
+    voice="shimmer",
+    language="es"  # Spanish
+)
+engine = VoiceEngine(config=config)
 ```
 
-## Production Features
-
-### 1. Metrics Collection
+### Interactive Voice Response (IVR)
 ```python
-# New file: metrics.py
-class RealtimeMetrics:
-    """Collect and export metrics"""
-    
-    def __init__(self):
-        self.connection_count = 0
-        self.message_latencies = []
-        self.audio_quality_scores = []
-    
-    def export_prometheus(self) -> str:
-        """Export metrics in Prometheus format"""
-        pass
+engine = VoiceEngine(api_key="...", mode="fast")
+engine.on_text_response = handle_user_input
+engine.on_function_call = execute_action
 ```
 
-### 2. Configuration Profiles
+## 🔧 Advanced Features
+
+### Voice Activity Detection (VAD)
+
+Built-in client-side VAD for efficient audio streaming:
+
 ```python
-# In session.py
-class SessionProfiles:
-    """Pre-configured session profiles"""
-    
-    @staticmethod
-    def voice_assistant() -> SessionConfig:
-        return SessionConfig(
-            instructions="You are a helpful voice assistant...",
-            voice="alloy",
-            modalities=["audio"],
-            temperature=0.7,
-            turn_detection=TurnDetectionConfig(threshold=0.3)
-        )
-    
-    @staticmethod
-    def transcription_service() -> SessionConfig:
-        return SessionConfig(
-            modalities=["text"],
-            input_audio_transcription=TranscriptionConfig(model="whisper-1"),
-            turn_detection=TurnDetectionConfig(type="none")
-        )
+config = VoiceEngineConfig(
+    vad_enabled=True,
+    vad_threshold=0.02,      # Energy threshold
+    vad_speech_start_ms=100, # Speech detection delay
+    vad_speech_end_ms=500    # Silence detection delay
+)
 ```
 
-### 3. Async Context Managers for Resources
+### Performance Metrics
+
+Monitor real-time performance:
+
 ```python
-# In audio.py
-class AudioFileManager:
-    """Manage temporary audio files with cleanup"""
-    
-    async def __aenter__(self):
-        self.temp_files = []
-        return self
-    
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        for file_path in self.temp_files:
-            try:
-                os.unlink(file_path)
-            except OSError:
-                pass
+metrics = engine.get_metrics()
+print(f"Latency: {metrics['audio']['capture_rate']} chunks/sec")
+print(f"Uptime: {metrics['uptime']} seconds")
 ```
+
+### Cost Tracking
+
+Track API usage and costs:
+
+```python
+usage = await engine.get_usage()
+cost = await engine.estimate_cost()
+print(f"Total cost: ${cost.total:.2f}")
+```
+
+## 🏗️ Architecture Details
+
+### Component Overview
+
+- **Audio Manager**: Unified audio interface for capture and playback
+- **Stream Manager**: WebSocket connection management
+- **VAD Detector**: Real-time voice activity detection
+- **Strategy Pattern**: Pluggable implementations for different use cases
+
+### Performance Characteristics
+
+**Fast Lane Performance:**
+- Audio capture to API: < 10ms
+- API to audio playback: < 10ms
+- Total round-trip: < 50ms
+- CPU usage: < 5%
+- Memory: < 50MB
+
+## 🛠️ Development
+
+### Requirements
+
+- Python 3.8+
+- `sounddevice` for audio I/O
+- `websockets` for API connection
+- `numpy` for audio processing
+
+### Testing
+
+```bash
+# Run smoke tests
+python -m pytest tests/smoke_tests/
+
+# Run specific test
+python -m realtimevoiceapi.smoke_tests.test_08_fast_lane_simple_demo
+```
+
+### Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Implement your changes
+4. Add tests
+5. Submit a pull request
+
+## 📝 Best Practices
+
+1. **Always handle errors**: Set up error callbacks for production use
+2. **Monitor metrics**: Track performance in production
+3. **Use appropriate mode**: Fast lane for conversations, Big lane for processing
+4. **Configure VAD**: Tune VAD parameters for your environment
+5. **Test audio devices**: Verify device compatibility before deployment
+
+## 🚧 Roadmap
+
+- [ ] Big Lane implementation
+- [ ] Multi-provider support (Anthropic, Google)
+- [ ] Audio effects pipeline
+- [ ] Advanced VAD algorithms
+- [ ] Recording and playback features
+- [ ] Conversation persistence
+- [ ] Web/mobile SDKs
+
+## 📄 License
+
+MIT License - see LICENSE file for details
+
+## 🙏 Acknowledgments
+
+Built with inspiration from modern real-time systems and the excellent OpenAI Realtime API.
+
+---

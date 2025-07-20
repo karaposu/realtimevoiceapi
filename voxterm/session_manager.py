@@ -1,30 +1,24 @@
 """
-VoxTerm Session Manager - Unified session handling abstraction
+VoxTerm Session Manager - Simplified with Stream Protocol
 
-This abstraction solves several problems:
-1. Consistent callback management across all modes
-2. Proper state tracking for responses
-3. Clean separation between menu navigation and actual interaction
-4. Unified error handling and recovery
-5. Mode-agnostic interface for the menu system
+Now uses StreamProtocol for cleaner stream management and timing.
 """
 
 import asyncio
-from typing import Optional, Any, Dict, Callable
+from typing import Optional, Any
 from dataclasses import dataclass, field
 from enum import Enum
 import time
 
 from .modes import create_mode
 from .settings import TerminalSettings
+from .stream_protocol import StreamProtocol, StreamConfig, StreamSession, StreamType, StreamEvent
 
 
 class SessionState(Enum):
     """Session states"""
     IDLE = "idle"
-    LISTENING = "listening"
-    PROCESSING = "processing"
-    RESPONDING = "responding"
+    ACTIVE = "active"
     ERROR = "error"
 
 
@@ -43,14 +37,7 @@ class SessionMetrics:
 
 class SessionManager:
     """
-    Unified session manager that handles all interaction modes consistently
-    
-    This abstraction:
-    - Manages callbacks properly for all modes
-    - Tracks response state to prevent double printing
-    - Provides consistent interface regardless of mode
-    - Handles errors gracefully
-    - Manages mode lifecycle (start/stop)
+    Simplified session manager using Stream Protocol
     """
     
     def __init__(self, engine: Any, mode_name: str, settings: Optional[TerminalSettings] = None):
@@ -68,20 +55,13 @@ class SessionManager:
         self.running = False
         self.metrics = SessionMetrics()
         
-        # Response tracking
-        self.current_response = ""
-        self.response_in_progress = False
-        self.waiting_for_response = False
+        # Create stream protocol with mode-specific config
+        stream_config = self._get_stream_config(mode_name)
+        self.protocol = StreamProtocol(engine, stream_config)
+        self.session = StreamSession(self.protocol)
         
-        # Callback management
-        self._original_callbacks = {}
-        self._callback_handlers = {
-            'on_text_response': self._handle_text_response,
-            'on_audio_response': self._handle_audio_response,
-            'on_response_done': self._handle_response_done,
-            'on_error': self._handle_error,
-            'on_transcript': self._handle_transcript,
-        }
+        # Setup event handlers
+        self._setup_handlers()
         
         # Mode-specific handlers
         self._mode_handlers = {
@@ -90,17 +70,83 @@ class SessionManager:
             'AlwaysOnMode': AlwaysOnModeHandler(),
             'TurnBasedMode': TurnBasedModeHandler(),
         }
+    
+    def _get_stream_config(self, mode_name: str) -> StreamConfig:
+        """Get mode-specific stream configuration"""
+        config = StreamConfig(
+            allow_interruption=True,
+            audio_buffer_size=20,
+            response_timeout=30.0
+        )
         
+        # Turn-based mode needs special handling to prevent feedback
+        if mode_name in ["turn_based", "turns"]:
+            config.auto_flush_on_silence = False  # Don't auto-process silence
+            config.silence_threshold_ms = 1000    # Longer silence needed
+        
+        return config
+        
+    def _setup_handlers(self):
+        """Setup stream event handlers"""
+        # Text output
+        self.protocol.on(StreamType.TEXT_OUT, self._handle_text_output)
+        
+        # Audio output (just for indication)
+        self.protocol.on(StreamType.AUDIO_OUT, self._handle_audio_output)
+        
+        # Transcripts
+        self.protocol.on(StreamType.TRANSCRIPT, self._handle_transcript)
+        
+        # Control events
+        self.protocol.on(StreamType.CONTROL, self._handle_control)
+        
+        # Track if we're in a response
+        self.response_started = False
+        
+    def _handle_text_output(self, event: StreamEvent):
+        """Handle text output events"""
+        if event.data and event.data.strip():
+            if not self.response_started:
+                print("\n🤖 AI: ", end="", flush=True)
+                self.response_started = True
+            print(event.data, end="", flush=True)
+    
+    def _handle_audio_output(self, event: StreamEvent):
+        """Handle audio output events"""
+        # Just indicate audio is playing
+        if not self.response_started:
+            print("\n🔊 ", end="", flush=True)
+            self.response_started = True
+    
+    def _handle_transcript(self, event: StreamEvent):
+        """Handle transcript events"""
+        if event.data and event.data.strip():
+            print(f"\n👤 You: {event.data}")
+    
+    def _handle_control(self, event: StreamEvent):
+        """Handle control events"""
+        action = event.data.get("action")
+        
+        if action == "response_done":
+            if self.response_started:
+                print()  # New line
+                self.response_started = False
+                self.metrics.messages_received += 1
+        elif action == "interaction_started":
+            self.metrics.messages_sent += 1
+        elif action == "interrupted":
+            print("\n[Interrupted]")
+    
     async def start(self):
         """Start the session"""
         if self.running:
             return
             
         self.running = True
-        self.state = SessionState.IDLE
+        self.state = SessionState.ACTIVE
         
-        # Setup callbacks
-        self._setup_callbacks()
+        # Start the protocol
+        await self.protocol.start()
         
         # Start the mode if needed
         if hasattr(self.mode, 'start'):
@@ -123,6 +169,9 @@ class SessionManager:
             
         self.running = False
         
+        # Stop any ongoing interaction
+        await self.protocol.end_interaction()
+        
         # Stop the mode
         if hasattr(self.mode, 'stop'):
             await self.mode.stop()
@@ -131,135 +180,22 @@ class SessionManager:
         if hasattr(self, 'handler'):
             await self.handler.cleanup(self)
         
-        # Restore callbacks
-        self._restore_callbacks()
+        # Stop the protocol
+        await self.protocol.stop()
         
         self.state = SessionState.IDLE
     
-    def _setup_callbacks(self):
-        """Setup callbacks with proper management"""
-        for callback_name, handler in self._callback_handlers.items():
-            if hasattr(self.engine, callback_name):
-                # Save original
-                self._original_callbacks[callback_name] = getattr(self.engine, callback_name)
-                # Set our handler
-                setattr(self.engine, callback_name, handler)
-    
-    def _restore_callbacks(self):
-        """Restore original callbacks"""
-        for callback_name, original in self._original_callbacks.items():
-            if hasattr(self.engine, callback_name):
-                setattr(self.engine, callback_name, original)
-        self._original_callbacks.clear()
-    
-    # Unified callback handlers
-    def _handle_text_response(self, text: str):
-        """Handle text responses consistently"""
-        if not text or not text.strip():
-            return
-            
-        # First text of a new response
-        if not self.response_in_progress:
-            self.response_in_progress = True
-            self.state = SessionState.RESPONDING
-            print("\n🤖 AI: ", end="", flush=True)
-        
-        print(text, end="", flush=True)
-        self.current_response += text
-    
-    def _handle_audio_response(self, audio: bytes):
-        """Handle audio responses"""
-        if not self.response_in_progress:
-            self.response_in_progress = True
-            self.state = SessionState.RESPONDING
-            # For voice modes, we might show a visual indicator
-            if self.mode_name != "text":
-                print("\n🔊 ", end="", flush=True)
-    
-    def _handle_response_done(self):
-        """Handle response completion"""
-        if self.response_in_progress:
-            print()  # New line
-            self.response_in_progress = False
-            self.waiting_for_response = False
-            self.state = SessionState.IDLE
-            self.metrics.messages_received += 1
-            
-            # Notify mode if it needs to know
-            if hasattr(self.mode, 'on_response_complete'):
-                self.mode.on_response_complete()
-                
-            # For turn-based mode, print the turn indicator
-            if self.mode_name == 'turn_based':
-                print("\n✅ Your turn again")
-    
-    def _handle_error(self, error: Exception):
-        """Handle errors consistently"""
-        print(f"\n❌ Error: {error}")
-        self.state = SessionState.ERROR
-        self.response_in_progress = False
-        self.waiting_for_response = False
-        self.metrics.errors += 1
-    
-    def _handle_transcript(self, text: str):
-        """Handle transcripts (user speech)"""
-        if text and text.strip():
-            print(f"\n👤 You: {text}")
-    
-    # Public interface for modes
-    async def send_text(self, text: str):
-        """Send text message"""
-        if not text.strip():
-            return
-            
-        self.state = SessionState.PROCESSING
-        self.waiting_for_response = True
-        self.metrics.messages_sent += 1
-        
-        try:
-            await self.engine.send_text(text)
-        except Exception as e:
-            self._handle_error(e)
-    
-    async def start_listening(self):
-        """Start listening for audio"""
-        # Ensure we're not already listening
-        if self.state == SessionState.LISTENING:
-            print("⚠️  Already listening")
-            return
-            
-        self.state = SessionState.LISTENING
-        try:
-            await self.engine.start_listening()
-        except Exception as e:
-            self.state = SessionState.ERROR
-            raise
-    
-    async def stop_listening(self):
-        """Stop listening and process audio"""
-        # Ensure we're actually listening
-        if self.state != SessionState.LISTENING:
-            print("⚠️  Not currently listening")
-            return
-            
-        self.state = SessionState.PROCESSING
-        self.waiting_for_response = True
-        self.metrics.messages_sent += 1
-        
-        try:
-            await self.engine.stop_listening()
-        except Exception as e:
-            self.state = SessionState.ERROR
-            # Still try to clean up state
-            self.waiting_for_response = False
-            raise
-    
     async def run_interactive(self):
         """Run the interactive loop based on mode"""
-        await self.handler.run(self)
+        try:
+            await self.handler.run(self)
+        except Exception as e:
+            self.state = SessionState.ERROR
+            self.metrics.errors += 1
+            raise
 
 
-# Mode-specific handlers that implement the interaction logic
+# Mode-specific handlers using Stream Protocol
 class TextModeHandler:
     """Handler for text mode"""
     
@@ -279,12 +215,9 @@ class TextModeHandler:
                     break
                 
                 if text.strip():
-                    await session.send_text(text)
+                    # Use stream session for clean interaction
+                    await session.session.text_turn(text)
                     
-                    # Wait for response to complete
-                    while session.waiting_for_response:
-                        await asyncio.sleep(0.1)
-                        
             except (KeyboardInterrupt, EOFError):
                 break
     
@@ -305,7 +238,6 @@ class PushToTalkModeHandler:
     async def run(self, session: SessionManager):
         """Run PTT interaction loop"""
         # This would integrate with keyboard handling
-        # For now, simplified version
         print("(Keyboard integration needed)")
         
         while session.running:
@@ -325,124 +257,118 @@ class AlwaysOnModeHandler:
         print("🎤 Always Listening")
         print("   Just speak naturally")
         print("   [P] Pause | [Q] Return to menu\n")
+        print("   💡 Tip: Use headphones to prevent feedback loops!\n")
         
-        # Start listening immediately
-        await session.start_listening()
+        # Start continuous listening
+        await session.protocol.start_interaction("voice")
     
     async def run(self, session: SessionManager):
         """Run always-on loop"""
         while session.running:
             await asyncio.sleep(0.1)
-            # VAD and response handling happens via callbacks
+            # VAD and response handling happens via stream events
     
     async def cleanup(self, session: SessionManager):
         """Cleanup always-on mode"""
-        if session.state == SessionState.LISTENING:
-            await session.engine.stop_listening()
+        await session.protocol.end_interaction()
 
 
 class TurnBasedModeHandler:
-    """Handler for turn-based mode"""
+    """Handler for turn-based mode with proper audio isolation"""
     
     def __init__(self):
-        self.waiting_for_user_turn = True
-        self.ai_is_speaking = False
+        self.response_complete = False
+        self.interaction_active = False
     
     async def initialize(self, session: SessionManager):
         """Initialize turn-based mode"""
         print("🎯 Turn-Based Conversation")
         print("   Press [ENTER] to start your turn")
-        print("   [Q] Return to menu\n")
+        print("   [Q] Return to menu")
+        print("   💡 Tip: Use headphones for best experience\n")
+        
+        # Add handler to track when response is complete
+        session.protocol.on(StreamType.CONTROL, self._on_control_event)
+    
+    def _on_control_event(self, event: StreamEvent):
+        """Track control events"""
+        action = event.data.get("action")
+        if action == "response_done":
+            self.response_complete = True
+        elif action == "interaction_started":
+            self.interaction_active = True
+        elif action == "interaction_ended":
+            self.interaction_active = False
     
     async def run(self, session: SessionManager):
-        """Run turn-based interaction"""
+        """Run turn-based interaction with proper turn isolation"""
+        
+        # Check if using speakers (which can cause feedback)
+        print("⚠️  Using speakers? The AI might hear itself.")
+        print("   For best results, use headphones or increase speaker distance.\n")
+        
         while session.running:
             try:
-                # Only listen when it's user's turn
-                if self.waiting_for_user_turn and not self.ai_is_speaking:
-                    loop = asyncio.get_event_loop()
-                    
-                    # Clear any pending input
-                    cmd = await loop.run_in_executor(
-                        None, input, "Press ENTER to speak (or Q to quit): "
-                    )
-                    
-                    if cmd.lower() == 'q':
-                        break
-                    
-                    print("🎤 Your turn! Press ENTER when done...")
-                    
-                    # Ensure clean state before starting
-                    if session.state == SessionState.LISTENING:
-                        print("⚠️  Cleaning up previous listening state...")
-                        try:
-                            await session.engine.stop_listening()
-                        except:
-                            pass
-                        await asyncio.sleep(0.5)
-                    
-                    # Reset state
-                    session.state = SessionState.IDLE
-                    self.waiting_for_user_turn = False
-                    
-                    try:
-                        # Start listening
-                        await session.start_listening()
-                        
-                        # Wait for user to press enter to stop
-                        await loop.run_in_executor(None, input, "")
-                        
-                        print("📤 Processing...")
-                        await session.stop_listening()
-                        
-                    except Exception as e:
-                        print(f"\n❌ Error during recording: {e}")
-                        # Ensure we're not stuck in listening state
-                        session.state = SessionState.IDLE
-                        self.waiting_for_user_turn = True
-                        continue
-                    
-                    # Mark that AI will be speaking
-                    self.ai_is_speaking = True
-                    
-                    # Wait for AI response to complete
-                    timeout = 30  # 30 second timeout
-                    start_time = time.time()
-                    
-                    while (session.waiting_for_response or session.response_in_progress) and (time.time() - start_time < timeout):
-                        await asyncio.sleep(0.1)
-                    
-                    if time.time() - start_time >= timeout:
-                        print("\n⚠️  Response timeout")
-                    
-                    # Wait a bit more to ensure audio playback is done
-                    await asyncio.sleep(1.5)
-                    
-                    # Now it's user's turn again
-                    self.ai_is_speaking = False
-                    self.waiting_for_user_turn = True
-                    
-                else:
-                    # Wait while AI is speaking
+                loop = asyncio.get_event_loop()
+                
+                # Wait for user to start their turn
+                cmd = await loop.run_in_executor(
+                    None, input, "Press ENTER to speak (or Q to quit): "
+                )
+                
+                if cmd.lower() == 'q':
+                    break
+                
+                print("🎤 Your turn! Press ENTER when done...")
+                
+                # Reset response tracking
+                self.response_complete = False
+                
+                # Start voice interaction
+                interaction_id = await session.protocol.start_interaction("voice")
+                
+                # Wait for user to press enter to stop
+                await loop.run_in_executor(None, input, "")
+                
+                print("📤 Processing...")
+                
+                # End the voice interaction - this stops listening
+                await session.protocol.end_interaction()
+                
+                # Wait for the AI response to complete
+                timeout = 30.0
+                start_time = time.time()
+                
+                while not self.response_complete and (time.time() - start_time < timeout):
                     await asyncio.sleep(0.1)
-                    
+                
+                if not self.response_complete:
+                    print("\n⚠️  Response timeout")
+                
+                # For turn-based mode, we need extra time to ensure
+                # the audio has finished playing through speakers
+                # This prevents the microphone from picking up the AI's voice
+                wait_time = 5.0  # Longer wait for speaker playback
+                print(f"\n⏳ Waiting {wait_time}s for audio to finish...")
+                print("   (This prevents the AI from hearing itself through speakers)")
+                await asyncio.sleep(wait_time)
+                
+                print("\n✅ Ready for your next turn")
+                
             except (KeyboardInterrupt, EOFError):
                 break
             except Exception as e:
-                print(f"\n❌ Turn error: {e}")
-                # Reset to safe state
-                self.waiting_for_user_turn = True
-                self.ai_is_speaking = False
-                session.state = SessionState.IDLE
+                print(f"\n❌ Error: {e}")
+                # Make sure interaction is ended on error
+                if self.interaction_active:
+                    await session.protocol.end_interaction()
+                await asyncio.sleep(1.0)
     
     async def cleanup(self, session: SessionManager):
         """Cleanup turn-based mode"""
-        if session.state == SessionState.LISTENING:
-            try:
-                await session.engine.stop_listening()
-            except:
-                pass
-        session.state = SessionState.IDLE
+        # Make sure any interaction is ended
+        if self.interaction_active:
+            await session.protocol.end_interaction()
 
 
 # Factory function for easy creation

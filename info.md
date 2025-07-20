@@ -1,5 +1,9 @@
 You're absolutely correct! Server-side VAD (including semantic VAD) is actually MORE demanding on latency because of the extra round trip. Let me rewrite that section:
 
+
+
+Real-time Streaming is Better with Callbacks
+
 ## The Core Challenge - Client vs Server VAD
 
 ### Client-Side VAD Latency Requirements

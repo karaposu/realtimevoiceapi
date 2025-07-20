@@ -1,5 +1,3 @@
-
-
 """
 VoxTerm - Minimalist CLI for Voice Chat
 
@@ -18,6 +16,8 @@ from .modes import (
 from .menu import VoxTermMenu, MenuState
 from .launcher import launch_voxterm, main
 from .settings import TerminalSettings, create_minimal_settings, create_debug_settings
+from .session_manager import SessionManager, create_session
+from .stream_protocol import StreamProtocol, StreamConfig, StreamSession, StreamType
 
 __version__ = "1.0.0"
 
@@ -35,5 +35,11 @@ __all__ = [
     "create_mode",
     "TerminalSettings",
     "create_minimal_settings",
-    "create_debug_settings"
+    "create_debug_settings",
+    "SessionManager",
+    "create_session",
+    "StreamProtocol",
+    "StreamConfig",
+    "StreamSession",
+    "StreamType"
 ]

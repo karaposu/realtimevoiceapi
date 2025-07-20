@@ -1,4 +1,4 @@
-#  file: persistence.py
+#  file: session/persistence.py
 
 
 class SessionStateManager:

@@ -131,6 +131,11 @@ class StreamProtocol:
     # Stream control methods
     async def start_interaction(self, interaction_type: str = "voice") -> str:
         """Start a new interaction (voice or text)"""
+        # End any existing interaction first
+        if self.current_interaction_id:
+            await self.end_interaction()
+            await asyncio.sleep(0.2)  # Brief pause
+        
         self.current_interaction_id = f"{interaction_type}_{int(time.time() * 1000)}"
         self.interaction_start_time = time.time()
         
@@ -150,9 +155,15 @@ class StreamProtocol:
         if not self.current_interaction_id:
             return
             
-        # Stop listening if voice
+        # Stop listening if voice - IMPORTANT: Do this first!
         if self.current_interaction_id.startswith("voice"):
-            await self.engine.stop_listening()
+            try:
+                await self.engine.stop_listening()
+                # Give a moment for audio system to settle
+                await asyncio.sleep(0.1)
+            except Exception as e:
+                # Log but don't fail - listening might already be stopped
+                pass
         
         # Emit control event
         await self._emit_event(StreamEvent(
