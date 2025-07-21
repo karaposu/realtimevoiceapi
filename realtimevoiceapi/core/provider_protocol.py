@@ -14,7 +14,7 @@ from enum import Enum
 from datetime import datetime
 
 from .stream_protocol import StreamCapabilities, StreamEvent, StreamConfig
-from .audio_types import AudioFormat
+from audioengine.audioengine.audio_types import AudioFormat
 
 
 # ============== Provider Capabilities ==============

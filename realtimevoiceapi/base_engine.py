@@ -11,13 +11,20 @@ import time
 from typing import Optional, Dict, Any, Callable, List, Literal
 from dataclasses import dataclass, field
 
+
+
 from .core.stream_protocol import StreamEvent, StreamEventType, StreamState
-from .core.audio_types import AudioBytes, AudioConfig, VADConfig, VADType
+from audioengine.audioengine.audio_types import AudioBytes
 from .core.exceptions import EngineError
 from .strategies.base_strategy import BaseStrategy, EngineConfig
 from .strategies.fast_lane_strategy import FastLaneStrategy
-from .audio.audio_manager import AudioManager, AudioManagerConfig
-from .audio.buffered_audio_player import BufferedAudioPlayer
+
+# Import AudioEngine from the audioengine package
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+from audioengine.audioengine.audio_engine import AudioEngine, create_fast_lane_engine
+from audioengine.audioengine.audio_types import AudioConfig, VADConfig, VADType, ProcessingMode
 
 
 @dataclass
@@ -95,8 +102,7 @@ class CoreEngineState:
 class EngineComponents:
     """Container for all engine components"""
     strategy: Optional[BaseStrategy] = None
-    audio_manager: Optional[AudioManager] = None
-    buffered_player: Optional[BufferedAudioPlayer] = None
+    audio_engine: Optional[AudioEngine] = None
     
     # Processing tasks
     audio_processing_task: Optional[asyncio.Task] = None
@@ -108,13 +114,12 @@ class EngineComponents:
     
     def has_audio(self) -> bool:
         """Check if audio components are available"""
-        return self.audio_manager is not None and self.buffered_player is not None
+        return self.audio_engine is not None
     
     def clear(self):
         """Clear all component references"""
         self.strategy = None
-        self.audio_manager = None
-        self.buffered_player = None
+        self.audio_engine = None
         self.audio_processing_task = None
 
 
@@ -230,8 +235,9 @@ class BaseEngine:
     @property
     def is_ai_speaking(self) -> bool:
         """Check if AI is currently speaking"""
-        if self.components.buffered_player:
-            return self.components.buffered_player.is_actively_playing
+        if self.components.audio_engine:
+            metrics = self.components.audio_engine.get_metrics()
+            return metrics.get('is_playing', False)
         return self.state.is_ai_speaking
     
     @property
@@ -303,7 +309,7 @@ class BaseEngine:
         vad_speech_start_ms: int,
         vad_speech_end_ms: int
     ) -> None:
-        """Setup audio manager and buffered player for fast lane"""
+        """Setup AudioEngine for fast lane"""
         try:
             # Create VAD config if enabled
             vad_config = None
@@ -315,44 +321,27 @@ class BaseEngine:
                     speech_end_ms=vad_speech_end_ms
                 )
             
-            # Create audio manager config
-            audio_manager_config = AudioManagerConfig(
-                input_device=input_device,
-                output_device=output_device,
+            # Create AudioEngine optimized for fast lane with all configurations
+            self.components.audio_engine = create_fast_lane_engine(
                 sample_rate=sample_rate,
                 chunk_duration_ms=chunk_duration_ms,
-                vad_enabled=vad_enabled,
+                input_device=input_device,
+                output_device=output_device,
                 vad_config=vad_config
             )
             
-            # Create and initialize audio manager
-            self.components.audio_manager = AudioManager(audio_manager_config, logger=self.logger)
-            await self.components.audio_manager.initialize()
-            
-            # Create buffered player
-            audio_config = AudioConfig(
-                sample_rate=sample_rate,
-                channels=1,
-                bit_depth=16,
-                chunk_duration_ms=chunk_duration_ms
+            # Set playback callbacks
+            self.components.audio_engine.set_playback_callbacks(
+                completion_callback=self._on_audio_playback_complete,
+                chunk_played_callback=self._on_chunks_played
             )
             
-            self.components.buffered_player = BufferedAudioPlayer(
-                config=audio_config,
-                logger=self.logger
-            )
-            
-            # Set callbacks
-            self.components.buffered_player.set_completion_callback(self._on_audio_playback_complete)
-            self.components.buffered_player.set_chunk_played_callback(self._on_chunks_played)
-            
-            self.logger.info("Audio components initialized with buffered playback")
+            self.logger.info("AudioEngine initialized for fast lane")
             
         except Exception as e:
             # Clean up if initialization fails
             self.logger.error(f"Failed to setup audio: {e}")
-            self.components.audio_manager = None
-            self.components.buffered_player = None
+            self.components.audio_engine = None
             raise
     
     # ============== Connection Management ==============
@@ -414,8 +403,8 @@ class BaseEngine:
         self.state.is_listening = True
         self.state.listening_start_time = time.time()
         
-        # For fast lane with audio manager, start processing loop
-        if self._mode == "fast" and self.components.audio_manager:
+        # For fast lane with audio engine, start processing loop
+        if self._mode == "fast" and self.components.audio_engine:
             self.components.audio_processing_task = asyncio.create_task(
                 self._audio_processing_loop()
             )
@@ -439,9 +428,9 @@ class BaseEngine:
                 pass
             self.components.audio_processing_task = None
         
-        # Stop audio capture through manager
-        if self.components.audio_manager:
-            await self.components.audio_manager.stop_capture()
+        # Stop audio capture through audio engine
+        if self.components.audio_engine:
+            await self.components.audio_engine.stop_capture_stream()
         
         # Stop audio input through strategy
         await self.components.strategy.stop_audio_input()
@@ -449,14 +438,14 @@ class BaseEngine:
         self.logger.info("Stopped listening for audio input")
     
     async def _audio_processing_loop(self) -> None:
-        """Process audio input for fast lane with VAD"""
-        if not self.components.audio_manager:
-            self.logger.error("No audio manager available")
+        """Process audio input for fast lane using AudioEngine"""
+        if not self.components.audio_engine:
+            self.logger.error("No audio engine available")
             return
         
-        # Get audio queue from manager
+        # Get audio queue from audio engine
         try:
-            audio_queue = await self.components.audio_manager.start_capture()
+            audio_queue = await self.components.audio_engine.start_capture_stream()
         except Exception as e:
             self.logger.error(f"Failed to start audio capture: {e}")
             return
@@ -464,7 +453,7 @@ class BaseEngine:
         try:
             while self.state.is_listening and self.state.is_connected:
                 try:
-                    # Get audio chunk
+                    # Get audio chunk from queue
                     audio_chunk = await asyncio.wait_for(audio_queue.get(), timeout=0.1)
                     
                     # Check if we should still process
@@ -476,11 +465,12 @@ class BaseEngine:
                         StreamState.ACTIVE, StreamState.STARTING
                     ]:
                         # Process through VAD
-                        vad_state = self.components.audio_manager.process_vad(audio_chunk)
+                        vad_state = self.components.audio_engine.process_vad_chunk(audio_chunk)
                         
                         # Send if speech or no VAD
                         if not vad_state or vad_state in ["speech_starting", "speech"]:
                             await self.components.strategy.send_audio(audio_chunk)
+                            self.state.total_audio_chunks_sent += 1
                     
                 except asyncio.TimeoutError:
                     continue
@@ -505,9 +495,9 @@ class BaseEngine:
         except Exception as e:
             self.logger.error(f"Fatal audio processing error: {e}")
         finally:
-            # Stop capture through manager
-            if self.components.audio_manager:
-                await self.components.audio_manager.stop_capture()
+            # Stop capture through audio engine
+            if self.components.audio_engine:
+                await self.components.audio_engine.stop_capture_stream()
     
     # ============== Event Management ==============
     
@@ -535,20 +525,22 @@ class BaseEngine:
                 # Call original handler
                 original_handler(event)
                 
-                # Play through buffered player if available
-                if event.data and "audio" in event.data and self.components.buffered_player:
-                    self.components.buffered_player.play(event.data["audio"])
+                # Play through audio engine if available
+                if event.data and "audio" in event.data and self.components.audio_engine:
+                    # Queue audio for playback
+                    audio_bytes = event.data["audio"]
+                    self.components.audio_engine.queue_playback(audio_bytes)
             
             self.event_registry.wrap_handler(StreamEventType.AUDIO_OUTPUT_CHUNK, audio_wrapper)
         
         # Create wrapper for stream ended handler
         if StreamEventType.STREAM_ENDED in handlers:
             def ended_wrapper(original_handler, event: StreamEvent):
-                # Mark audio complete for buffered player
-                if self.state.response_audio_started and self.components.buffered_player:
-                    self.components.buffered_player.mark_complete()
+                # Mark audio complete for audio engine
+                if self.state.response_audio_started and self.components.audio_engine:
+                    self.components.audio_engine.mark_playback_complete()
                     self.state.response_audio_complete = True
-                    self.logger.debug("Marked audio complete for buffered player")
+                    self.logger.debug("Marked audio complete for audio engine")
                 
                 # Call original
                 original_handler(event)
@@ -570,8 +562,8 @@ class BaseEngine:
                 # Create wrapper for response done
                 def response_done_wrapper():
                     # Mark audio complete
-                    if self.state.response_audio_started and self.components.buffered_player:
-                        self.components.buffered_player.mark_complete()
+                    if self.state.response_audio_started and self.components.audio_engine:
+                        self.components.audio_engine.mark_playback_complete()
                         self.state.response_audio_complete = True
                     
                     stream_ended_handler = self.event_registry.get_handler(StreamEventType.STREAM_ENDED)
@@ -629,10 +621,10 @@ class BaseEngine:
         if not self.components.strategy:
             raise EngineError("Not connected")
         
-        # Stop buffered audio immediately
-        if self.components.buffered_player:
-            self.components.buffered_player.stop(force=True)
-            self.logger.debug("Force stopped buffered audio")
+        # Stop audio immediately through audio engine
+        if self.components.audio_engine:
+            self.components.audio_engine.interrupt_playback(force=True)
+            self.logger.debug("Interrupted audio playback")
         
         # Reset audio state
         self.state.reset_response_state()
@@ -659,15 +651,13 @@ class BaseEngine:
             except Exception as e:
                 self.logger.error(f"Error getting strategy metrics: {e}")
         
-        if self.components.audio_manager:
+        if self.components.audio_engine:
             try:
-                metrics["audio"] = self.components.audio_manager.get_metrics()
+                audio_metrics = self.components.audio_engine.get_metrics()
+                metrics["audio_engine"] = audio_metrics
             except Exception as e:
                 self.logger.error(f"Error getting audio metrics: {e}")
-                metrics["audio"] = {"error": str(e)}
-        
-        if self.components.buffered_player:
-            metrics["buffered_audio"] = self.components.buffered_player.get_metrics()
+                metrics["audio_engine"] = {"error": str(e)}
         
         return metrics
     
@@ -693,22 +683,23 @@ class BaseEngine:
     
     def play_audio(self, audio_data: AudioBytes) -> None:
         """Play audio through the appropriate player"""
-        # If we're using buffered player for responses, it's already handled
-        if self.components.buffered_player and self.state.response_audio_started:
-            # Already being handled by buffered player
+        # If we're in a response, audio is already being handled
+        if self.state.response_audio_started:
             return
         
-        # Otherwise use direct playback
-        if self.components.audio_manager:
-            self.components.audio_manager.play_audio(audio_data)
+        # Otherwise use audio engine for direct playback
+        if self.components.audio_engine:
+            # Process and play audio
+            processed = self.components.audio_engine.process_audio(audio_data)
+            # TODO: Add direct playback method to AudioEngine
     
     def _on_audio_playback_complete(self):
-        """Called when buffered playback completes"""
+        """Called when audio playback completes"""
         self.logger.info("Audio playback fully complete")
         
         # Get final metrics
-        if self.components.buffered_player:
-            metrics = self.components.buffered_player.get_metrics()
+        if self.components.audio_engine:
+            metrics = self.components.audio_engine.get_metrics()
             self.logger.info(f"Final playback metrics: {metrics}")
         
         # Reset state
@@ -725,7 +716,7 @@ class BaseEngine:
                 timestamp=time.time(),
                 data={
                     "reason": "audio_playback_complete",
-                    "playback_metrics": self.components.buffered_player.get_metrics() if self.components.buffered_player else {}
+                    "playback_metrics": self.components.audio_engine.get_metrics() if self.components.audio_engine else {}
                 }
             )
             
@@ -774,16 +765,12 @@ class BaseEngine:
                 except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
             
-            # Stop buffered player
-            if self.components.buffered_player:
-                self.components.buffered_player.stop(force=True)
-            
-            # Cleanup audio manager
-            if self.components.audio_manager:
+            # Cleanup audio engine
+            if self.components.audio_engine:
                 try:
-                    await self.components.audio_manager.cleanup()
+                    await self.components.audio_engine.cleanup_async()
                 except Exception as e:
-                    self.logger.error(f"Audio manager cleanup error: {e}")
+                    self.logger.error(f"Audio engine cleanup error: {e}")
             
             # Disconnect strategy if connected
             if self.components.strategy:

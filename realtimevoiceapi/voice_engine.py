@@ -16,7 +16,7 @@ from pathlib import Path
 import json
 
 from .core.stream_protocol import StreamEvent, StreamEventType, StreamState
-from .core.audio_types import AudioBytes
+from audioengine.audioengine.audio_types import AudioBytes
 from .core.provider_protocol import Usage, Cost
 from .core.exceptions import EngineError
 from .strategies.base_strategy import EngineConfig
@@ -304,7 +304,7 @@ class VoiceEngine:
     
     async def send_audio(self, audio_data: AudioBytes) -> None:
         """
-        Send audio data to the AI.
+        Send audio data to the AI for real-time streaming.
         
         Args:
             audio_data: Raw audio bytes
@@ -312,6 +312,28 @@ class VoiceEngine:
         self._ensure_connected()
         # Direct call to strategy for zero overhead
         await self._strategy.send_audio(audio_data)
+    
+    async def send_recorded_audio(self, audio_data: AudioBytes, 
+                                auto_respond: bool = True) -> None:
+        """
+        Send complete audio recording and optionally trigger response.
+        
+        Use this when you have a complete audio recording (e.g., from push-to-talk,
+        file upload, or pre-recorded audio) rather than real-time streaming.
+        
+        Args:
+            audio_data: Complete audio recording
+            auto_respond: Whether to automatically trigger AI response (default: True)
+        """
+        self._ensure_connected()
+        # Check if strategy supports this method
+        if hasattr(self._strategy, 'send_recorded_audio'):
+            await self._strategy.send_recorded_audio(audio_data, auto_respond)
+        else:
+            # Fallback: send as regular audio and manually trigger response
+            await self._strategy.send_audio(audio_data)
+            if auto_respond and hasattr(self._strategy, 'trigger_response'):
+                await self._strategy.trigger_response()
     
     async def send_text(self, text: str) -> None:
         """

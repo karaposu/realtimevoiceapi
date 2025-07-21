@@ -11,7 +11,7 @@ from typing import Optional, Dict, Any, List, AsyncIterator, Callable
 from dataclasses import dataclass
 
 from ..core.stream_protocol import StreamEvent, StreamEventType, StreamState
-from ..core.audio_types import AudioBytes
+from audioengine.audioengine.audio_types import AudioBytes
 from ..core.provider_protocol import Usage, Cost
 
 
@@ -82,6 +82,26 @@ class BaseStrategy(ABC):
     async def send_text(self, text: str) -> None:
         """Send text to provider"""
         pass
+    
+    async def send_recorded_audio(self, audio_data: AudioBytes, 
+                                auto_respond: bool = True) -> None:
+        """
+        Send complete audio recording and optionally trigger response.
+        Default implementation chunks the audio and triggers response.
+        Strategies can override for more efficient implementation.
+        """
+        # Default implementation: send audio and trigger response
+        await self.send_audio(audio_data)
+        if auto_respond:
+            await self.trigger_response()
+    
+    async def trigger_response(self) -> None:
+        """
+        Explicitly trigger AI response generation.
+        Override in strategies that support this.
+        """
+        # Default: no-op - strategies should override if they support this
+        self.logger.warning("trigger_response not implemented for this strategy")
     
     @abstractmethod
     async def get_response_stream(self) -> AsyncIterator[StreamEvent]:

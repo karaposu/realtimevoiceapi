@@ -30,7 +30,7 @@ except ImportError:
     HAS_SCIPY = False
     scipy = None
 
-from ..core.audio_types import (
+from audioengine.audioengine.audio_types import (
     AudioBytes, AudioConfig, AudioConstants, AudioMetadata,
     AmplitudeFloat, ProcessingMode
 )

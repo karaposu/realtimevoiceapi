@@ -5,10 +5,20 @@ import logging
 import time
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Union
-from realtimevoiceapi.audio.models import (
-    AudioFormatType, ModalityType, VoiceType, ToolChoiceType,
-    TurnDetectionConfig, TranscriptionConfig, Tool
-)
+# TODO: These models need to be implemented
+# from realtimevoiceapi.audio.models import (
+#     AudioFormatType, ModalityType, VoiceType, ToolChoiceType,
+#     TurnDetectionConfig, TranscriptionConfig, Tool
+# )
+
+# Temporary types
+AudioFormatType = str
+ModalityType = str
+VoiceType = str
+ToolChoiceType = str
+TurnDetectionConfig = Dict[str, Any]
+TranscriptionConfig = Dict[str, Any]
+Tool = Dict[str, Any]
 
 
 @dataclass

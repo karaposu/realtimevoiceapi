@@ -32,11 +32,11 @@ except ImportError:
     HAS_PYDUB = False
     AudioSegment = None
 
-from ..core.audio_types import (
+from audioengine.audioengine.audio_types import (
     AudioBytes, AudioFormat, AudioConfig, AudioConstants,
     AudioMetadata, ProcessingMode
 )
-from ..core.audio_processor import AudioProcessor
+from audioengine.audioengine.audio_processor import AudioProcessor
 from ..core.exceptions import AudioError, AudioErrorType
 
 

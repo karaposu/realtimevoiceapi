@@ -20,7 +20,7 @@ from realtimevoiceapi.core.stream_protocol import (
 )
 from realtimevoiceapi.connections.websocket_connection import FastLaneConnection
 from realtimevoiceapi.core.message_protocol import MessageFactory, ServerMessageType
-from realtimevoiceapi.core.audio_types import AudioBytes, AudioConfig
+from audioengine.audioengine.audio_types import AudioBytes, AudioConfig
 from realtimevoiceapi.core.exceptions import StreamError
 
 
@@ -186,6 +186,23 @@ class FastStreamManager(IStreamManager):
         
         # Trigger response
         await self.connection.send(MessageFactory.response_create())
+    
+    async def commit_audio_and_respond(self) -> None:
+        """
+        Commit audio buffer and trigger response.
+        Used when we have a complete audio recording.
+        """
+        if self._state != StreamState.ACTIVE:
+            raise StreamError(f"Cannot commit audio in state {self._state}")
+            
+        if self._audio_bytes_sent > 0:
+            # Commit the audio buffer
+            await self.connection.send({
+                "type": "input_audio_buffer.commit"
+            })
+            # Trigger response
+            await self.connection.send(MessageFactory.response_create())
+            self._audio_bytes_sent = 0
     
     def subscribe_events(
         self,

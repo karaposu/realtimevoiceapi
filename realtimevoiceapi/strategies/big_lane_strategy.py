@@ -28,7 +28,7 @@ from ..core.stream_protocol import (
     StreamEvent, StreamEventType, StreamState,
     IStreamManager, StreamConfig, AudioFormat
 )
-from ..core.audio_types import AudioBytes, AudioConfig
+from audioengine.audioengine.audio_types import AudioBytes, AudioConfig
 from ..core.provider_protocol import (
     Usage, Cost, IVoiceProvider, ProviderRegistry,
     ProviderConfig, IProviderSession

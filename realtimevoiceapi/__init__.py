@@ -8,8 +8,8 @@ __version__ = "0.2.0"
 
 # Core imports for smoke tests
 from .voice_engine import VoiceEngine, VoiceEngineConfig
-from .core.audio_processor import AudioProcessor
-from .core.audio_engine import (
+from audioengine.audioengine.audio_processor import AudioProcessor
+from audioengine.audioengine.audio_engine import (
     AudioEngine,
     ProcessingMetrics,
     ProcessingStrategy,
@@ -28,14 +28,15 @@ from .core.exceptions import (
 )
 
 # Model imports for smoke tests
-from .audio.models import (
-    Tool,
-    TurnDetectionConfig,
-    TranscriptionConfig,
-    AudioFormatType,
-    ModalityType,
-    VoiceType,
-)
+# TODO: These models need to be implemented or imported from the correct location
+# from .audio.models import (
+#     Tool,
+#     TurnDetectionConfig,
+#     TranscriptionConfig,
+#     AudioFormatType,
+#     ModalityType,
+#     VoiceType,
+# )
 
 # Message protocol (used by smoke tests)
 from .core.message_protocol import (
@@ -47,7 +48,7 @@ from .core.message_protocol import (
 )
 
 # Audio types (used by smoke tests)
-from .core.audio_types import (
+from audioengine.audioengine.audio_types import (
     AudioFormat,
     AudioConfig,
     ProcessingMode,
@@ -66,7 +67,7 @@ from .core.stream_protocol import (
 
 
 
-from .audio.audio_manager import (
+from audioengine.audioengine.audio_manager import (
     AudioManager,
     AudioManagerConfig,
     # AudioComponentState,
@@ -96,12 +97,12 @@ __all__ = [
     "AudioError",
     "StreamError",
     "EngineError",
-    "Tool",
-    "TurnDetectionConfig",
-    "TranscriptionConfig",
-    "AudioFormatType",
-    "ModalityType",
-    "VoiceType",
+    # "Tool",
+    # "TurnDetectionConfig", 
+    # "TranscriptionConfig",
+    # "AudioFormatType",
+    # "ModalityType",
+    # "VoiceType",
     "ClientMessageType",
     "ServerMessageType",
     "MessageFactory",

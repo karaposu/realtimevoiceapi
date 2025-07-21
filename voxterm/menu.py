@@ -10,6 +10,7 @@ from enum import Enum
 
 from .settings import TerminalSettings
 from .session_manager import create_session
+from .logger import logger, setup_logging, patch_print, restore_print
 
 
 class MenuState(Enum):
@@ -69,7 +70,7 @@ class VoxTermMenu:
             
             MenuState.SETTINGS: {
                 'v': MenuItem('v', 'Change Voice', next_state=MenuState.VOICE_SELECT),
-                'l': MenuItem('l', 'Log Level', action=self._toggle_log_level),
+                'l': MenuItem('l', f'Logging to File: {"ON" if self.settings.log_to_file else "OFF"}', action=self._toggle_logging),
                 'i': MenuItem('i', 'Info', action=self._show_info),
                 'b': MenuItem('b', 'Back', action=self._go_back),
             },
@@ -161,6 +162,12 @@ class VoxTermMenu:
         """Run the menu system"""
         self._clear_screen()
         
+        # Setup logging based on current settings
+        if self.settings.log_to_file:
+            setup_logging(self.settings)
+            patch_print()
+            logger.log_event("SESSION", "VoxTerm menu started")
+        
         while self.running:
             try:
                 # Show interface
@@ -225,13 +232,19 @@ class VoxTermMenu:
         """Connect and immediately start a session"""
         if not self.connected:
             print("\n📡 Connecting...")
+            if self.settings.log_to_file:
+                logger.log_api_event("Attempting connection")
             try:
                 await self.engine.connect()
                 self.connected = True
                 print("✅ Connected!")
+                if self.settings.log_to_file:
+                    logger.log_api_event("Connected successfully")
                 await asyncio.sleep(0.5)
             except Exception as e:
                 print(f"❌ Connection failed: {e}")
+                if self.settings.log_to_file:
+                    logger.log_event("ERROR", f"Connection failed: {e}")
                 await asyncio.sleep(2)
                 return False
         
@@ -247,6 +260,9 @@ class VoxTermMenu:
         self._show_header()
         
         print(f"🚀 Starting {self.current_mode} session...\n")
+        
+        if self.settings.log_to_file:
+            logger.log_event("SESSION", f"Starting {self.current_mode} session")
         
         # Create session manager
         session = create_session(self.engine, self.current_mode, self.settings)
@@ -266,8 +282,13 @@ class VoxTermMenu:
                 print(f"   Errors: {session.metrics.errors}")
             print(f"   Duration: {session.metrics.duration:.1f}s")
             
+            if self.settings.log_to_file:
+                logger.log_event("SESSION", f"Session ended - Messages: {session.metrics.messages_sent}/{session.metrics.messages_received}, Duration: {session.metrics.duration:.1f}s")
+            
         except Exception as e:
             print(f"\n❌ Session error: {e}")
+            if self.settings.log_to_file:
+                logger.log_event("ERROR", f"Session error: {e}")
         finally:
             # Always cleanup
             await session.stop()
@@ -292,14 +313,31 @@ class VoxTermMenu:
         print(f"✅ Voice changed to: {voice}")
         # Don't auto-go back, wait for user to press 'b'
     
-    def _toggle_log_level(self):
-        """Toggle log level between INFO and WARNING"""
-        if self.settings.log_level.value == "INFO":
-            self.settings.log_level = self.settings.log_level.__class__("WARNING")
-            print("✅ Log level set to: WARNING (quieter)")
+    def _toggle_logging(self):
+        """Toggle file logging on/off"""
+        self.settings.log_to_file = not self.settings.log_to_file
+        
+        if self.settings.log_to_file:
+            # Create log filename with timestamp
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self.settings.log_file_path = f"voxterm_log_{timestamp}.txt"
+            print(f"✅ Logging enabled: {self.settings.log_file_path}")
+            
+            # Start logging immediately
+            setup_logging(self.settings)
+            patch_print()
+            logger.log_event("SESSION", "Logging enabled from settings menu")
         else:
-            self.settings.log_level = self.settings.log_level.__class__("INFO")
-            print("✅ Log level set to: INFO (verbose)")
+            print("✅ Logging disabled")
+            if logger.enabled:
+                logger.log_event("SESSION", "Logging disabled from settings menu")
+                restore_print()
+                logger.disable()
+            self.settings.log_file_path = None
+            
+        # Update menu label
+        self.menus[MenuState.SETTINGS]['l'].label = f'Logging to File: {"ON" if self.settings.log_to_file else "OFF"}'
     
     def _show_info(self):
         """Show info about VoxTerm"""
@@ -322,9 +360,16 @@ class VoxTermMenu:
     def _quit(self):
         """Quit the application"""
         print("\n👋 Goodbye!")
+        if self.settings.log_to_file:
+            logger.log_event("SESSION", "User quit from menu")
         self.running = False
         if self.connected:
             asyncio.create_task(self._disconnect())
+        
+        # Clean up logging if enabled
+        if logger.enabled:
+            restore_print()
+            logger.disable()
     
     async def _disconnect(self):
         """Disconnect from voice API"""

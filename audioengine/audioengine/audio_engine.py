@@ -15,8 +15,8 @@ from enum import Enum
 
 from .audio_types import (
     AudioBytes, AudioConfig, ProcessingMode, AudioFormat,
-    AudioConstants, AudioMetadata, BufferConfig,AudioErrorType
-
+    AudioConstants, AudioMetadata, BufferConfig, AudioErrorType,
+    VADConfig
 )
 from .audio_processor import AudioProcessor, BufferPool, AudioStreamBuffer
 from .exceptions import AudioError
@@ -385,7 +385,7 @@ class AudioEngine:
         self._stream_buffer.add_audio(audio_bytes)
         
         # Check if we have enough for processing
-        chunk_size = self.config.chunk_size_bytes(200)  # 200ms chunks for quality
+        chunk_size = int(self.config.sample_rate * 200 / 1000 * self.config.channels * 2)  # 200ms chunks for quality
         
         if self._stream_buffer.get_available_bytes() >= chunk_size:
             chunk = self._stream_buffer.get_chunk(chunk_size)
@@ -494,7 +494,159 @@ class AudioEngine:
         
         self.logger.info("Metrics reset")
     
+    # ============== Audio Capture & Playback ==============
+    
+    def configure_devices(self, input_device: Optional[int] = None, output_device: Optional[int] = None):
+        """Configure audio input/output devices"""
+        self._input_device = input_device
+        self._output_device = output_device
+        self.logger.info(f"Configured devices - Input: {input_device}, Output: {output_device}")
+    
+    def configure_vad(self, vad_config: Optional[VADConfig] = None):
+        """Configure Voice Activity Detection"""
+        self._vad_config = vad_config
+        if vad_config:
+            self.logger.info(f"VAD configured: {vad_config.type.value}")
+        else:
+            self.logger.info("VAD disabled")
+    
+    async def start_capture_stream(self) -> Any:
+        """
+        Start audio capture and return an async stream.
+        This is a placeholder for BaseEngine integration.
+        Full implementation would create audio manager and return stream.
+        """
+        # Import here to avoid circular dependency
+        from .audio_manager import AudioManager, AudioManagerConfig
+        
+        if not hasattr(self, '_audio_manager'):
+            # Create audio manager if not exists
+            config = AudioManagerConfig(
+                input_device=getattr(self, '_input_device', None),
+                output_device=getattr(self, '_output_device', None),
+                sample_rate=self.config.sample_rate,
+                channels=self.config.channels,
+                chunk_duration_ms=self.config.chunk_duration_ms,
+                vad_enabled=hasattr(self, '_vad_config') and self._vad_config is not None,
+                vad_config=getattr(self, '_vad_config', None)
+            )
+            
+            self._audio_manager = AudioManager(config, logger=self.logger)
+            await self._audio_manager.initialize()
+        
+        # Start capture and return queue
+        return await self._audio_manager.start_capture()
+    
+    async def stop_capture_stream(self):
+        """Stop audio capture"""
+        if hasattr(self, '_audio_manager'):
+            await self._audio_manager.stop_capture()
+    
+    def queue_playback(self, audio_data: AudioBytes):
+        """Queue audio for playback through buffered player"""
+        # Import here to avoid circular dependency
+        from .buffered_audio_player import BufferedAudioPlayer
+        
+        if not hasattr(self, '_buffered_player'):
+            # Create buffered player if not exists
+            self._buffered_player = BufferedAudioPlayer(
+                config=self.config,
+                device=getattr(self, '_output_device', None),
+                logger=self.logger
+            )
+        
+        # Queue audio for playback
+        self._buffered_player.play(audio_data)
+    
+    def mark_playback_complete(self):
+        """Mark that all audio has been received for playback"""
+        if hasattr(self, '_buffered_player'):
+            self._buffered_player.mark_complete()
+    
+    def interrupt_playback(self, force: bool = True):
+        """Interrupt current audio playback"""
+        if hasattr(self, '_buffered_player'):
+            self._buffered_player.stop(force=force)
+            self.logger.info("Playback interrupted")
+    
+    def set_playback_callbacks(
+        self,
+        completion_callback: Optional[Callable] = None,
+        chunk_played_callback: Optional[Callable[[int], None]] = None
+    ):
+        """Set callbacks for playback events"""
+        if hasattr(self, '_buffered_player'):
+            if completion_callback:
+                self._buffered_player.set_completion_callback(completion_callback)
+            if chunk_played_callback:
+                self._buffered_player.set_chunk_played_callback(chunk_played_callback)
+    
+    def process_vad_chunk(self, audio_chunk: AudioBytes) -> Optional[str]:
+        """Process audio chunk through VAD if configured"""
+        if hasattr(self, '_audio_manager'):
+            return self._audio_manager.process_vad(audio_chunk)
+        return None
+    
+    @property
+    def is_playing(self) -> bool:
+        """Check if audio is currently playing"""
+        if hasattr(self, '_buffered_player'):
+            return self._buffered_player.is_actively_playing
+        return False
+    
+    # ============== Enhanced Metrics ==============
+    
+    def get_metrics(self) -> Dict[str, Any]:
+        """Get comprehensive engine metrics"""
+        with self._lock:
+            metrics = self.metrics.to_dict()
+        
+        # Add engine-specific metrics
+        metrics.update({
+            "mode": self.mode.value,
+            "has_buffer_pool": self.buffer_pool is not None,
+            "pre_processors": len(self._pre_processors),
+            "post_processors": len(self._post_processors),
+            "adaptive_threshold_ms": self._adaptive_threshold,
+            "is_playing": self.is_playing  # Add playback status
+        })
+        
+        # Add buffer pool stats if available
+        if self.buffer_pool:
+            metrics["buffer_pool"] = {
+                "pool_size": self.buffer_pool.pool_size,
+                "buffer_size": self.buffer_pool.buffer_size,
+                "available": len(self.buffer_pool.available),
+                "in_use": len(self.buffer_pool.in_use)
+            }
+        
+        # Add stream buffer stats if available
+        if self._stream_buffer:
+            metrics["stream_buffer"] = self._stream_buffer.get_stats()
+        
+        # Add component metrics
+        if hasattr(self, '_audio_manager'):
+            metrics["audio_manager"] = self._audio_manager.get_metrics()
+        
+        if hasattr(self, '_buffered_player'):
+            metrics["buffered_player"] = self._buffered_player.get_metrics()
+        
+        return metrics
+    
     # ============== Cleanup ==============
+    
+    async def cleanup_async(self):
+        """Async cleanup for audio components"""
+        # Cleanup audio manager
+        if hasattr(self, '_audio_manager'):
+            await self._audio_manager.cleanup()
+        
+        # Stop buffered player
+        if hasattr(self, '_buffered_player'):
+            self._buffered_player.stop(force=True)
+        
+        # Call sync cleanup
+        self.cleanup()
     
     def cleanup(self):
         """Clean up resources"""
@@ -521,7 +673,10 @@ class AudioEngine:
 
 def create_fast_lane_engine(
     sample_rate: int = 24000,
-    chunk_duration_ms: int = 20
+    chunk_duration_ms: int = 20,
+    input_device: Optional[int] = None,
+    output_device: Optional[int] = None,
+    vad_config: Optional[VADConfig] = None
 ) -> AudioEngine:
     """Create engine optimized for fast lane"""
     config = AudioConfig(
@@ -544,6 +699,11 @@ def create_fast_lane_engine(
         config=config,
         buffer_config=buffer_config
     )
+    
+    # Configure devices and VAD
+    engine.configure_devices(input_device, output_device)
+    if vad_config:
+        engine.configure_vad(vad_config)
     
     return engine
 

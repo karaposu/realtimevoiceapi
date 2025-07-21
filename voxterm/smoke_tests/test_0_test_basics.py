@@ -63,24 +63,23 @@ def test_push_to_talk_mode():
         print("\nSimulating space press...")
         await mode.on_key_down("space")
         assert mode.is_recording == True
-        assert engine.listening == True
-        print("✓ Recording started")
+        print("✓ Recording flag set")
         
         # Wait a bit
         await asyncio.sleep(0.3)
         
-        # Test key release
+        # Test key release (should return True for normal press)
         print("\nSimulating space release...")
-        await mode.on_key_up("space")
+        result = await mode.on_key_up("space")
         assert mode.is_recording == False
-        assert engine.listening == False
-        print("✓ Recording stopped")
+        assert result == True  # Should signal to send
+        print("✓ Recording stopped, send signal returned")
         
-        # Test short press (should cancel)
+        # Test short press (should return False to cancel)
         print("\nTesting short press...")
         await mode.on_key_down("space")
-        await mode.on_key_up("space")  # Immediate release
-        assert "clear_buffer" in str(engine.actions)
+        result = await mode.on_key_up("space")  # Immediate release
+        assert result == False  # Should signal to cancel
         print("✓ Short press cancelled")
         
         print("\n✅ Push-to-talk mode test PASSED")
@@ -98,29 +97,27 @@ def test_always_on_mode():
     mode = AlwaysOnMode(engine)
     
     async def run_test():
-        # Start listening
+        # Start listening (mode doesn't control engine directly anymore)
         await mode.start()
-        assert engine.listening == True
-        print("✓ Started listening")
+        print("✓ Mode started")
         
         # Test pause
         print("\nTesting pause...")
-        await mode.on_key_down("p")
+        result = await mode.on_key_down("p")
         assert mode.is_paused == True
-        assert engine.listening == False
-        print("✓ Paused")
+        assert result == {"action": "pause"}
+        print("✓ Pause action returned")
         
         # Test resume
         print("\nTesting resume...")
-        await mode.on_key_down("p")
+        result = await mode.on_key_down("p")
         assert mode.is_paused == False
-        assert engine.listening == True
-        print("✓ Resumed")
+        assert result == {"action": "resume"}
+        print("✓ Resume action returned")
         
         # Stop
         await mode.stop()
-        assert engine.listening == False
-        print("✓ Stopped")
+        print("✓ Mode stopped")
         
         print("\n✅ Always-on mode test PASSED")
     
@@ -139,16 +136,16 @@ def test_text_mode():
     async def run_test():
         # Test text input
         print("Testing text input...")
-        await mode.on_text_input("Hello, this is a test")
-        assert len(engine.messages) == 1
-        assert engine.messages[0] == "Hello, this is a test"
-        print("✓ Text sent to engine")
+        result = await mode.on_text_input("Hello, this is a test")
+        assert result == "Hello, this is a test"
+        print("✓ Text processed and returned")
         
-        # Test empty input (should be ignored)
-        await mode.on_text_input("")
-        await mode.on_text_input("   ")
-        assert len(engine.messages) == 1
-        print("✓ Empty input ignored")
+        # Test empty input (should return None)
+        result1 = await mode.on_text_input("")
+        result2 = await mode.on_text_input("   ")
+        assert result1 is None
+        assert result2 is None
+        print("✓ Empty input returns None")
         
         print("\n✅ Text mode test PASSED")
     
@@ -169,25 +166,14 @@ def test_turn_based_mode():
         assert mode.is_my_turn == True
         print("✓ Starts with user's turn")
         
-        # Start turn
-        print("\nStarting turn...")
-        await mode.on_key_down("space")
-        assert mode.is_recording == True
-        assert engine.listening == True
-        print("✓ Recording started")
-        
-        # End turn
-        print("\nEnding turn...")
-        await mode.on_key_down("space")
-        assert mode.is_recording == False
-        assert mode.is_my_turn == False
-        assert engine.listening == False
-        print("✓ Turn ended, waiting for AI")
+        # Test turn management (simplified - no key handling in this mode)
+        print("\nSimulating AI response...")
+        mode.is_my_turn = False  # Simulate user sent message
         
         # Simulate AI response complete
         mode.on_response_complete()
         assert mode.is_my_turn == True
-        print("✓ Turn returned to user")
+        print("✓ Turn returned to user after AI response")
         
         print("\n✅ Turn-based mode test PASSED")
     

@@ -16,7 +16,7 @@ from enum import Enum
 from collections import defaultdict
 
 from ..core.stream_protocol import StreamEvent, StreamEventType, Response
-from ..core.audio_types import AudioBytes
+from audioengine.audioengine.audio_types import AudioBytes
 from ..core.exceptions import StreamError
 
 

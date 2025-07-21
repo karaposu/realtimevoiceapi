@@ -17,8 +17,8 @@ from enum import Enum
 
 import numpy as np
 
-from realtimevoiceapi.core.audio_types import AudioBytes, AudioConfig, AudioMetadata
-from realtimevoiceapi.core.audio_processor import AudioProcessor as BaseAudioProcessor
+from audioengine.audioengine.audio_types import AudioBytes, AudioConfig, AudioMetadata
+from audioengine.audioengine.audio_processor import AudioProcessor as BaseAudioProcessor
 from realtimevoiceapi.core.exceptions import AudioError
 
 

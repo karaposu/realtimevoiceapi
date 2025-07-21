@@ -8,15 +8,18 @@ import time
 from typing import Optional, Any
 from .keyboard import SimpleKeyboard
 from .modes import create_mode
+from .logger import logger, setup_logging, patch_print, restore_print
+from .settings import TerminalSettings
 
 
 class VoxTermCLI:
     """Minimalist CLI for voice chat"""
     
-    def __init__(self, voice_engine: Any, mode: str = "push_to_talk"):
+    def __init__(self, voice_engine: Any, mode: str = "push_to_talk", settings: Optional[TerminalSettings] = None):
         self.engine = voice_engine
         self.mode_name = mode
         self.mode = create_mode(mode, voice_engine)
+        self.settings = settings or TerminalSettings()
         
         if not self.mode:
             raise ValueError(f"Unknown mode: {mode}")
@@ -65,6 +68,8 @@ class VoxTermCLI:
                 # First text of a new response
                 print("\n🤖 AI: ", end="", flush=True)
                 self.response_in_progress = True
+                if self.settings.log_to_file:
+                    logger.log_api_event("Response started", "text_stream")
             print(text, end="", flush=True)
             self.current_ai_response += text
             
@@ -76,6 +81,8 @@ class VoxTermCLI:
         """Handle user transcript"""
         if text.strip():
             print(f"\n👤 You: {text}")
+            if self.settings.log_to_file:
+                logger.log_user_action(f"Transcript: {text}")
             
         # Call original if exists
         if self._orig_on_transcript:
@@ -85,6 +92,8 @@ class VoxTermCLI:
         """Handle response completion"""
         if self.response_in_progress:
             print()  # New line after response
+            if self.settings.log_to_file:
+                logger.log_api_event("Response completed")
             self.current_ai_response = ""
             self.response_in_progress = False
             
@@ -100,6 +109,13 @@ class VoxTermCLI:
         """Main CLI loop"""
         self.running = True
         
+        # Setup logging if enabled
+        if self.settings.log_to_file:
+            setup_logging(self.settings)
+            patch_print()
+            logger.log_event("SESSION", "VoxTerm CLI started")
+            logger.log_event("CONFIG", f"Mode: {self.mode_name}, Voice: {getattr(self.engine.config, 'voice', 'default')}")
+        
         # Header
         print("\n🎙️  VoxTerm Voice Chat")
         print("=" * 40)
@@ -110,8 +126,12 @@ class VoxTermCLI:
         try:
             # Connect engine
             print("Connecting...", end="", flush=True)
+            if self.settings.log_to_file:
+                logger.log_api_event("Connecting to API")
             await self.engine.connect()
             print(" ✅")
+            if self.settings.log_to_file:
+                logger.log_api_event("Connected successfully")
             
             # Setup keyboard only if needed
             needs_keyboard = self.mode_name not in ["text", "type", "turn_based", "turns"]
@@ -241,9 +261,13 @@ class VoxTermCLI:
                     break
                 elif cmd in ['r', 'record', 'start']:
                     print("🔴 Recording... (type 's' to stop)")
+                    if self.settings.log_to_file:
+                        logger.log_user_action("Started recording")
                     await self.mode.on_key_down("space")
                 elif cmd in ['s', 'stop', 'send']:
                     print("📤 Sending...")
+                    if self.settings.log_to_file:
+                        logger.log_user_action("Stopped recording and sending")
                     await self.mode.on_key_up("space")
                 elif cmd in ['m', 'mute']:
                     self._toggle_mute()
@@ -293,9 +317,13 @@ class VoxTermCLI:
                     
                     # Don't print "AI:" here - let the callback handle it
                     try:
+                        if self.settings.log_to_file:
+                            logger.log_user_action(f"Sent text: {text}")
                         await self.engine.send_text(text)
                     except Exception as e:
                         print(f"\n❌ Error sending text: {e}")
+                        if self.settings.log_to_file:
+                            logger.log_event("ERROR", f"Failed to send text: {e}")
                     
             except EOFError:
                 break
@@ -322,14 +350,30 @@ class VoxTermCLI:
                 
                 # Start recording
                 print("🎤 Your turn! Press ENTER when done...")
-                await self.mode.on_key_down("space")
+                
+                # Debug: Check what methods are available
+                if self.settings.log_level == LogLevel.DEBUG:
+                    print(f"[DEBUG] Session methods: {[m for m in dir(self.session) if not m.startswith('_')]}")
+                    print(f"[DEBUG] Mode type: {type(self.mode).__name__}")
+                
+                # For turn-based, trigger recording start
+                if hasattr(self.mode, 'on_key_down'):
+                    result = await self.mode.on_key_down("space")
+                    if self.settings.log_level == LogLevel.DEBUG:
+                        print(f"[DEBUG] on_key_down result: {result}")
                 
                 # Wait for enter
                 await loop.run_in_executor(None, input, "")
                 
                 # Stop and send
-                print("📤 Sending...")
-                await self.mode.on_key_up("space")
+                print("📤 Processing...")
+                if hasattr(self.mode, 'on_key_up'):
+                    result = await self.mode.on_key_up("space")
+                    if self.settings.log_level == LogLevel.DEBUG:
+                        print(f"[DEBUG] on_key_up result: {result}")
+                
+                # Give it a moment to process
+                await asyncio.sleep(0.5)
                 
             except EOFError:
                 break
@@ -405,3 +449,9 @@ class VoxTermCLI:
             await self.engine.disconnect()
             
         print("✅ Cleanup complete")
+        
+        # Clean up logging
+        if self.settings.log_to_file:
+            logger.log_event("SESSION", "VoxTerm CLI ended")
+            restore_print()
+            logger.disable()

@@ -14,10 +14,38 @@ import logging
 
 from .base_strategy import BaseStrategy, EngineConfig
 from ..core.stream_protocol import StreamEvent, StreamEventType, StreamState
-from ..core.audio_types import AudioBytes, AudioConfig, VADConfig, VADType
+from audioengine.audioengine.audio_types import AudioBytes, AudioConfig, VADConfig, VADType
 from ..core.provider_protocol import Usage, Cost
-from ..fast_lane.direct_audio_capture import DirectAudioCapture
-from ..fast_lane.fast_vad_detector import FastVADDetector,VADState
+# TODO: These modules need to be created or replaced with AudioEngine equivalents
+# from ..fast_lane.direct_audio_capture import DirectAudioCapture
+# from ..fast_lane.fast_vad_detector import FastVADDetector,VADState
+
+# Temporary placeholders
+class DirectAudioCapture:
+    def __init__(self, *args, **kwargs):
+        pass
+    def start(self):
+        pass
+    def stop(self):
+        pass
+    def get_metrics(self):
+        return {}
+    async def start_async_capture(self):
+        # Return an empty queue for the placeholder
+        return asyncio.Queue()
+
+class FastVADDetector:
+    def __init__(self, *args, **kwargs):
+        pass
+    def process_chunk(self, *args):
+        return None
+    def get_metrics(self):
+        return {}
+
+class VADState:
+    SPEECH_STARTING = "speech_starting"
+    SPEECH = "speech"
+    SILENCE = "silence"
 from ..fast_lane.fast_stream_manager import FastStreamManager, FastStreamConfig
 from ..core.exceptions import EngineError
 
@@ -308,6 +336,37 @@ Minimal features - Just voice I/O
         
         # Rough token estimate
         self._usage.text_input_tokens += len(text.split()) * 1.3
+    
+    async def send_recorded_audio(self, audio_data: AudioBytes, 
+                                auto_respond: bool = True) -> None:
+        """
+        Send complete audio recording and trigger response.
+        
+        For FastLaneStrategy, we need to:
+        1. Send the audio data via input_audio_buffer.append
+        2. Commit the buffer via input_audio_buffer.commit
+        3. Trigger response via response.create
+        """
+        if not self._is_connected:
+            raise EngineError("Not connected")
+            
+        # Send the audio data
+        await self.stream_manager.send_audio(audio_data)
+        
+        if auto_respond:
+            # Commit the audio buffer and trigger response
+            await self.stream_manager.commit_audio_and_respond()
+    
+    async def trigger_response(self) -> None:
+        """Explicitly trigger AI response generation"""
+        if not self._is_connected:
+            raise EngineError("Not connected")
+            
+        if self.stream_manager and self.stream_manager.connection:
+            from ..messaging.message_factory import MessageFactory
+            await self.stream_manager.connection.send(
+                MessageFactory.response_create()
+            )
     
     async def get_response_stream(self) -> AsyncIterator[StreamEvent]:
         """Get response event stream"""

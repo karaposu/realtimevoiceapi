@@ -15,9 +15,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from .stream_protocol import StreamEvent, StreamEventType, StreamState
-from .audio_types import AudioBytes, AudioConfig
+from audioengine.audioengine.audio_types import AudioBytes, AudioConfig
 from .exceptions import AudioError
-from ..audio.audio_manager import AudioManager
+from audioengine.audioengine.audio_manager import AudioManager
 from ..strategies.base_strategy import BaseStrategy
 
 
