@@ -1,62 +1,3 @@
-#here is realtimevoiceapi/fast_lane/direct_audio_capture.py
-
-
-"""
-Direct Audio Capture - Fast Lane Component
-
-Hardware-level audio capture using sounddevice for minimal latency.
-Optimized for real-time voice streaming with pre-allocated buffers.
-"""
-"""
-Direct Audio Capture - Fast Lane Component
-
-Hardware-level audio capture using sounddevice for minimal latency.
-Optimized for real-time voice streaming with pre-allocated buffers.
-"""
-
-import asyncio
-import queue
-import logging
-import threading
-import time
-from typing import Optional, Callable, Union, Dict, Any
-from dataclasses import dataclass
-import numpy as np
-
-try:
-    import sounddevice as sd
-except ImportError:
-    raise ImportError("sounddevice is required. Install with: pip install sounddevice")
-
-from ..core.audio_types import AudioBytes, AudioConfig, AudioQuality
-from ..core.exceptions import AudioError
-from ..core.audio_interfaces import AudioPlayerInterface, AudioCaptureInterface
-
-
-@dataclass
-class CaptureMetrics:
-    """Metrics for audio capture performance"""
-    chunks_captured: int = 0
-    chunks_dropped: int = 0
-    buffer_overruns: int = 0
-    total_bytes: int = 0
-    start_time: float = 0.0
-    
-    @property
-    def capture_duration(self) -> float:
-        """Total capture duration in seconds"""
-        if self.start_time == 0:
-            return 0.0
-        return time.time() - self.start_time
-    
-    @property
-    def capture_rate(self) -> float:
-        """Chunks per second"""
-        duration = self.capture_duration
-        if duration == 0:
-            return 0.0
-        return self.chunks_captured / duration
-
 
 class DirectAudioCapture(AudioCaptureInterface):
     """
@@ -333,22 +274,6 @@ class DirectAudioPlayer(AudioPlayerInterface):
         
         # Pre-initialize stream for zero-latency start
         self._initialize_stream()
-
-
-    @staticmethod
-    def list_output_devices():
-        """List available audio output devices"""
-        devices = []
-        for i, device in enumerate(sd.query_devices()):
-            if device['max_output_channels'] > 0:
-                devices.append({
-                    "index": i,
-                    "name": device['name'],
-                    "channels": device['max_output_channels'],
-                    "default": i == sd.default.device[1]  # [1] is output device
-                })
-        
-        return devices
     
     def _setup_device(self):
         """Setup and validate audio device"""
@@ -423,9 +348,7 @@ class DirectAudioPlayer(AudioPlayerInterface):
     def is_playing(self) -> bool:
         """Check if currently playing audio"""
         with self._buffer_lock:
-            return len(self._buffer) > 0  # Only return True if there's audio in buffer
-        # with self._buffer_lock:
-        #     return len(self._buffer) > 0 or self._is_active
+            return len(self._buffer) > 0 or self._is_active
     
     def play_audio(self, audio_data: AudioBytes) -> bool:
         """

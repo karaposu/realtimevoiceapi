@@ -28,9 +28,9 @@ try:
 except ImportError:
     raise ImportError("sounddevice is required. Install with: pip install sounddevice")
 
-from ..core.audio_types import AudioBytes, AudioConfig, AudioQuality
-from ..core.exceptions import AudioError
-from ..core.audio_interfaces import AudioPlayerInterface, AudioCaptureInterface
+from .audio_types import AudioBytes, AudioConfig, AudioQuality
+from .exceptions import AudioError
+from .audio_interfaces import AudioPlayerInterface, AudioCaptureInterface
 
 
 @dataclass

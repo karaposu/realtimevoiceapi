@@ -1,6 +1,5 @@
 # here is realtimevoiceapi/__init__.py
 
-
 """
 RealtimeVoiceAPI - Modern Python framework for OpenAI's Realtime API
 """
@@ -10,6 +9,14 @@ __version__ = "0.2.0"
 # Core imports for smoke tests
 from .voice_engine import VoiceEngine, VoiceEngineConfig
 from .core.audio_processor import AudioProcessor
+from .core.audio_engine import (
+    AudioEngine,
+    ProcessingMetrics,
+    ProcessingStrategy,
+    create_fast_lane_engine,
+    create_big_lane_engine,
+    create_adaptive_engine,
+)
 from realtimevoiceapi.session import SessionConfig, SessionPresets
 from .core.exceptions import (
     RealtimeError,
@@ -43,6 +50,9 @@ from .core.message_protocol import (
 from .core.audio_types import (
     AudioFormat,
     AudioConfig,
+    ProcessingMode,
+    BufferConfig,
+    AudioConstants,
     VADConfig,
     VADType,
 )
@@ -54,14 +64,30 @@ from .core.stream_protocol import (
     StreamState,
 )
 
+
+
+from .audio.audio_manager import (
+    AudioManager,
+    AudioManagerConfig,
+    # AudioComponentState,
+    # create_audio_manager,
+)
+
 # Session manager (used by smoke tests)
 from .session.session_manager import SessionManager
+
 
 __all__ = [
     "__version__",
     "VoiceEngine",
     "VoiceEngineConfig",
     "AudioProcessor",
+    "AudioEngine",
+    "ProcessingMetrics",
+    "ProcessingStrategy",
+    "create_fast_lane_engine",
+    "create_big_lane_engine",
+    "create_adaptive_engine",
     "SessionConfig",
     "SessionPresets",
     "RealtimeError",
@@ -83,10 +109,17 @@ __all__ = [
     "ProtocolInfo",
     "AudioFormat",
     "AudioConfig",
+    "ProcessingMode",
+    "BufferConfig",
+    "AudioConstants",
     "VADConfig",
     "VADType",
     "StreamEvent",
     "StreamEventType",
     "StreamState",
     "SessionManager",
+    "AudioManager",
+    "AudioManagerConfig",
+    # "AudioComponentState",
+    # "create_audio_manager",
 ]

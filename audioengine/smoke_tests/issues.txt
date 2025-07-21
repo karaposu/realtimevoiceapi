@@ -1,0 +1,3 @@
+The silence detection in validation might be too aggressive for testing
+The get_stats() method in AudioStreamBuffer has a threading issue
+The process_realtime() method doesn't validate minimum duration, only frame alignment
