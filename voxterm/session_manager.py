@@ -103,6 +103,14 @@ class SessionManager:
         # Track if we're in a response
         self.response_started = False
         
+        # For turn-based mode, we also need direct engine handlers
+        if self.mode_name in ["turn_based", "turns"]:
+            # Set up direct engine handlers for response tracking
+            if hasattr(self.engine, 'on_response_text'):
+                self.engine.on_response_text = self._handle_text_output_direct
+            if hasattr(self.engine, 'on_response_done'):
+                self.engine.on_response_done = self._handle_response_done_direct
+        
     def _handle_text_output(self, event: StreamEvent):
         """Handle text output events"""
         if event.data and event.data.strip():
@@ -136,6 +144,16 @@ class SessionManager:
             self.metrics.messages_sent += 1
         elif action == "interrupted":
             print("\n[Interrupted]")
+    
+    def _handle_text_output_direct(self, text: str):
+        """Direct handler for text output (turn-based mode)"""
+        if text and text.strip():
+            print(text, end="", flush=True)
+    
+    def _handle_response_done_direct(self):
+        """Direct handler for response done (turn-based mode)"""
+        print()  # New line
+        self.metrics.messages_received += 1
     
     async def start(self):
         """Start the session"""
@@ -279,12 +297,37 @@ class TurnBasedModeHandler:
     def __init__(self):
         self.response_complete = False
         self.interaction_active = False
+        
+        # Audio recording parameters (matching VoiceEngine defaults)
+        self.sample_rate = 24000
+        self.channels = 1
+        self.dtype = None  # Will be set to np.int16
+        
+        # Import dependencies
+        try:
+            import sounddevice as sd
+            import numpy as np
+            self.sd = sd
+            self.np = np
+            self.dtype = np.int16
+        except ImportError:
+            print("⚠️  sounddevice not found. Installing...")
+            import subprocess
+            import sys
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "sounddevice", "numpy"])
+            import sounddevice as sd
+            import numpy as np
+            self.sd = sd
+            self.np = np
+            self.dtype = np.int16
     
     async def initialize(self, session: SessionManager):
         """Initialize turn-based mode"""
         print("🎯 Turn-Based Conversation")
-        print("   Press [ENTER] to start your turn")
+        print("   Press [ENTER] to start recording")
+        print("   Press [ENTER] again to send")
         print("   [Q] Return to menu")
+        print("   💡 Using send_recorded_audio for proper turn-based mode")
         print("   💡 Tip: Use headphones for best experience\n")
         
         # Add handler to track when response is complete
@@ -300,12 +343,41 @@ class TurnBasedModeHandler:
         elif action == "interaction_ended":
             self.interaction_active = False
     
+    def record_audio(self) -> bytes:
+        """Record audio and return PCM data"""
+        print("🎤 Recording... Press ENTER when done")
+        
+        # Start recording in a list to accumulate chunks
+        audio_chunks = []
+        
+        def callback(indata, frames, time, status):
+            if status:
+                print(f"⚠️  Recording status: {status}")
+            audio_chunks.append(indata.copy())
+        
+        # Start recording
+        stream = self.sd.InputStream(
+            samplerate=self.sample_rate,
+            channels=self.channels,
+            dtype=self.dtype,
+            callback=callback
+        )
+        
+        with stream:
+            # Wait for Enter key
+            input()
+        
+        # Combine all chunks
+        if audio_chunks:
+            audio_data = self.np.concatenate(audio_chunks, axis=0)
+        else:
+            audio_data = self.np.array([], dtype=self.dtype)
+        
+        # Convert to bytes (PCM16)
+        return audio_data.tobytes()
+    
     async def run(self, session: SessionManager):
         """Run turn-based interaction with proper turn isolation"""
-        
-        # Check if using speakers (which can cause feedback)
-        print("⚠️  Using speakers? The AI might hear itself.")
-        print("   For best results, use headphones or increase speaker distance.\n")
         
         while session.running:
             try:
@@ -313,55 +385,46 @@ class TurnBasedModeHandler:
                 
                 # Wait for user to start their turn
                 cmd = await loop.run_in_executor(
-                    None, input, "Press ENTER to speak (or Q to quit): "
+                    None, input, "\nPress ENTER to speak (or 'q' to quit): "
                 )
                 
-                if cmd.lower() == 'q':
+                if cmd.lower() in ['q', 'quit']:
                     break
                 
-                print("🎤 Your turn! Press ENTER when done...")
+                # Record audio
+                audio_data = await loop.run_in_executor(None, self.record_audio)
                 
-                # Reset response tracking
-                self.response_complete = False
-                
-                # Start voice interaction
-                interaction_id = await session.protocol.start_interaction("voice")
-                
-                # Wait for user to press enter to stop
-                await loop.run_in_executor(None, input, "")
-                
-                print("📤 Processing...")
-                
-                # End the voice interaction - this stops listening
-                await session.protocol.end_interaction()
-                
-                # Wait for the AI response to complete
-                timeout = 30.0
-                start_time = time.time()
-                
-                while not self.response_complete and (time.time() - start_time < timeout):
-                    await asyncio.sleep(0.1)
-                
-                if not self.response_complete:
-                    print("\n⚠️  Response timeout")
-                
-                # For turn-based mode, we need extra time to ensure
-                # the audio has finished playing through speakers
-                # This prevents the microphone from picking up the AI's voice
-                wait_time = 5.0  # Longer wait for speaker playback
-                print(f"\n⏳ Waiting {wait_time}s for audio to finish...")
-                print("   (This prevents the AI from hearing itself through speakers)")
-                await asyncio.sleep(wait_time)
-                
-                print("\n✅ Ready for your next turn")
+                if len(audio_data) > 0:
+                    print("📤 Processing...")
+                    
+                    # Reset response tracking
+                    self.response_complete = False
+                    print("🤖 AI: ", end="", flush=True)
+                    
+                    # Use send_recorded_audio for turn-based interaction
+                    await session.engine.send_recorded_audio(audio_data)
+                    
+                    # Wait for the AI response to complete
+                    timeout = 30.0
+                    start_time = time.time()
+                    
+                    while not self.response_complete and (time.time() - start_time < timeout):
+                        await asyncio.sleep(0.1)
+                    
+                    if not self.response_complete:
+                        print("\n⚠️  Response timeout")
+                    
+                    # Give AI time to respond
+                    await asyncio.sleep(0.5)
+                else:
+                    print("⚠️  No audio recorded")
                 
             except (KeyboardInterrupt, EOFError):
                 break
             except Exception as e:
                 print(f"\n❌ Error: {e}")
-                # Make sure interaction is ended on error
-                if self.interaction_active:
-                    await session.protocol.end_interaction()
+                import traceback
+                traceback.print_exc()
                 await asyncio.sleep(1.0)
     
     async def cleanup(self, session: SessionManager):
