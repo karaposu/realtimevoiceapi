@@ -97,6 +97,39 @@ class TurnBasedMode:
     def __init__(self, engine):
         self.engine = engine
         self.is_my_turn = True
+        self.is_recording = False
+        self.audio_buffer = []
+        
+    async def start_recording(self):
+        """Start recording audio"""
+        self.is_recording = True
+        self.audio_buffer = []
+        if hasattr(self.engine, 'start_listening'):
+            await self.engine.start_listening()
+        
+    async def stop_recording_and_send(self):
+        """Stop recording and send the audio"""
+        self.is_recording = False
+        if hasattr(self.engine, 'stop_listening'):
+            await self.engine.stop_listening()
+        
+        # Send recorded audio if we have the method
+        if hasattr(self.engine, 'send_recorded_audio') and self.audio_buffer:
+            complete_audio = b"".join(self.audio_buffer)
+            await self.engine.send_recorded_audio(complete_audio)
+            self.audio_buffer = []
+            return True
+        return False
+        
+    async def on_key_down(self, key: str):
+        """Handle key press - start recording"""
+        if key == "space" and not self.is_recording:
+            await self.start_recording()
+            
+    async def on_key_up(self, key: str):
+        """Handle key release - stop and send"""
+        if key == "space" and self.is_recording:
+            return await self.stop_recording_and_send()
         
     def on_response_complete(self):
         """Called when AI finishes responding"""
